@@ -1,0 +1,407 @@
+# Supporting services for local development and CI.
+#
+# This file holds the things that are NOT part of the deployed system: a stand-in for AWS,
+# a throwaway git remote for ArgoCD, and the tool containers. Prometheus, Loki, Grafana,
+# the image renderer and the application itself run in the k3d cluster, because running
+# them in compose would prove nothing about the manifests that actually ship. (The
+# renderer started out here and moved -- monitoring/grafana/renderer.yaml says why.)
+#
+# The network is explicitly named so scripts can attach one-off containers to it —
+# terraform, the AWS CLI, k6 — without depending on Compose's project-name-derived
+# default, which changes with the directory name.
+
+name: linkpulse
+
+networks:
+  linkpulse:
+    name: linkpulse
+    # An explicit subnet, so that LocalStack can be given a fixed address below.
+    #
+    # Without it Docker assigns addresses in start order, and LocalStack's IP changes any
+    # time the container is recreated — after `mise run clean`, for instance. That matters
+    # because the k3d cluster reaches LocalStack by IP (k8s/manifests/overlays/local
+    # explains the path), and an address that moves turns into a readiness probe failing
+    # with a connection timeout that names no cause.
+    #
+    # 172.30.0.0/16 sits inside Docker's own default address pool. That is deliberate: if
+    # the range is already taken on a given host, `docker compose up` fails immediately
+    # with "Pool overlaps with other one on this address space" rather than starting
+    # something subtly misrouted. Change this and localstack's ipv4_address together, and
+    # the EndpointSlice in k8s/manifests/overlays/local/localstack.yaml with them.
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+volumes:
+  localstack-data:
+  go-mod-cache:
+  gitea-data:
+  trivy-cache:
+
+services:
+  # ---------------------------------------------------------------------------------
+  # LocalStack — DynamoDB, S3, IAM and STS
+  #
+  # This is what keeps the repository runnable after the AWS account closes, and what
+  # lets `terraform apply` run on every push without credentials. Only the services
+  # the project actually uses are enabled: LocalStack starts lazily per service, and
+  # naming them keeps startup to a few seconds instead of tens.
+  # ---------------------------------------------------------------------------------
+  localstack:
+    # 4.14, and both the floor and the ceiling here are deliberate.
+    #
+    # Floor: 4.9 and older cannot be used with a current AWS provider at all — see
+    # the note in infra/terraform/envs/*/versions.tf. 4.14 is what makes the
+    # non-deprecated key_schema syntax and provider 6.64 work.
+    #
+    # Ceiling: the 4.x line is the last one whose image reports `edition:
+    # community`. LocalStack has moved to date-based tags (2026.x) that require a
+    # licence and simply exit on startup without one, so `latest` is unusable under a
+    # $0 constraint. This is checked by asserting the edition in scripts/, not by
+    # trusting the tag.
+    image: localstack/localstack:4.14
+    container_name: linkpulse-localstack
+    networks:
+      linkpulse:
+        # Fixed, and referenced from k8s/manifests/overlays/local/localstack.yaml. See the
+        # note on the network above for why it cannot be left to Docker to choose.
+        ipv4_address: 172.30.0.10
+        aliases:
+          # S3 Control addresses requests to <account-id>.<host>, and a current AWS
+          # provider reads bucket tags through S3 Control rather than plain S3. Without
+          # this alias the provider looks up 000000000000.localstack, gets NXDOMAIN, and
+          # `terraform apply` fails on the state-bucket module with a DNS error that
+          # mentions nothing about tags. LocalStack's account ID is always
+          # 000000000000, so the alias is a constant rather than something derived.
+          - 000000000000.localstack
+    ports:
+      # Bound to loopback only. LocalStack has no authentication whatsoever — anything
+      # that can reach this port can do anything to it — and on a laptop that joins
+      # untrusted networks, 0.0.0.0 would be handing that out.
+      - "127.0.0.1:4566:4566"
+    environment:
+      SERVICES: dynamodb,s3,s3control,iam,sts
+      DEBUG: "0"
+      # Persistence is a Pro feature; on community it is silently ignored. State is
+      # therefore in-memory and dies with the container, which is exactly why
+      # envs/local keeps local Terraform state and why `mise run dev` reapplies it.
+      PERSISTENCE: "0"
+      # One DynamoDB instance regardless of credentials or region, in memory. (An earlier
+      # comment here claimed SHARE_DB made the 25 WCU ceiling enforceable. It does not:
+      # DynamoDB Local never enforces provisioned throughput, and phase 9 measured 78 WCU/s
+      # of writes against the 20 WCU table with zero throttles. What reproduces the
+      # throttle locally is the injection below.)
+      DYNAMODB_SHARE_DB: "1"
+      DYNAMODB_IN_MEMORY: "1"
+      # Chaos experiment 1's local lever. With this on, LocalStack's /_localstack/config
+      # endpoint accepts runtime changes to a short allowlist of variables, one of which is
+      # DYNAMODB_WRITE_ERROR_PROBABILITY: the fraction of PutItem/UpdateItem calls answered
+      # with a genuine ProvisionedThroughputExceededException. scripts/chaos/experiment1.py
+      # raises it from 0 to 0.5 for the duration of the experiment and back, with no
+      # restart and no table loss. The organic throttle -- the table refusing the 21st
+      # write unit in a second -- is real DynamoDB's and belongs to the burst; locally the
+      # injection is what lets the *signature* (dropped clicks, not slow redirects) be
+      # asserted on every run. Bound to loopback, so "exposes configuration via your
+      # network" (LocalStack's own warning) means this laptop.
+      ENABLE_CONFIG_UPDATES: "1"
+    volumes:
+      - localstack-data:/var/lib/localstack
+      # LocalStack's own container needs the Docker socket to spawn service containers.
+      # This is a real privilege grant: a container with the docker socket is root on
+      # the host. Accepted here because it is a development dependency on a developer
+      # machine, and it is one of the reasons LocalStack is not part of the deployed
+      # system.
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      # Checks that the services are actually available, not just that the process is
+      # listening. LocalStack answers on 4566 well before DynamoDB is ready, and a
+      # terraform apply against a half-started LocalStack fails in confusing ways.
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sf http://localhost:4566/_localstack/health | grep -q '\"dynamodb\": \"\\(available\\|running\\)\"'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------------
+  # Gitea — the git remote ArgoCD watches
+  #
+  # GitOps needs a repository that the cluster can reach, and "the GitHub repo" is the
+  # wrong answer for two of the three places this runs. Offline, there is no GitHub. In
+  # CI, chaos experiment 2 pushes a deliberately broken manifest and then reverts it —
+  # doing that against the real repository from inside the pipeline that is testing the
+  # real repository is a loop nobody should build. A throwaway Gitea gives every
+  # environment its own remote: push, watch ArgoCD sync, revert, watch it roll back, and
+  # delete the whole thing afterwards.
+  #
+  # It is on the same footing as LocalStack — development scaffolding that is NOT part of
+  # the deployed system — which is why it lives here rather than in the cluster.
+  # ---------------------------------------------------------------------------------
+  gitea:
+    # The rootless image runs Gitea as uid 1000 directly, with no s6 supervisor and no
+    # privilege drop at startup — one process, and `docker compose exec` lands in the
+    # right user for the admin CLI.
+    image: gitea/gitea:1.25.3-rootless
+    container_name: linkpulse-gitea
+    networks:
+      linkpulse:
+        # Fixed, like LocalStack's, and for the same reason: ArgoCD's repo-server reaches
+        # it through a selectorless Service whose EndpointSlice carries this literal
+        # (gitops/argocd/apps/local/gitea.yaml).
+        ipv4_address: 172.30.0.11
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Skip the browser install wizard; the settings that wizard would collect are the
+      # ones below.
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__server__ROOT_URL: http://localhost:3000/
+      GITEA__server__HTTP_PORT: "3000"
+      # Pushing to a repository that does not exist creates it. This is what removes the
+      # "create the repo through the API first" step from `mise run gitops-push`.
+      GITEA__repository__ENABLE_PUSH_CREATE_USER: "true"
+      # ...and creates it public, so ArgoCD can clone without a credential Secret. There is
+      # nothing in the repository that is not already on the developer's disk.
+      GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE: "false"
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      # SQLite. A second database container for a git server that holds one repository
+      # would be scaffolding for the scaffolding.
+      GITEA__database__DB_TYPE: sqlite3
+    volumes:
+      - gitea-data:/var/lib/gitea
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/api/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------------
+  # Tool containers (profile: tools)
+  #
+  # These do not run as services — they exist so that terraform, the Go toolchain and
+  # the smoke test can be invoked without being installed on the host, and without any
+  # caller having to hand-write a `docker run` with a bind mount. Compose resolves the
+  # relative `.` host path portably, which matters more than it sounds: a hand-written
+  # mount needs C:/-style paths on Windows and /-style paths everywhere else, and that
+  # difference is exactly the kind of host dependency this project claims not to have.
+  #
+  #   docker compose run --rm terraform -chdir=infra/terraform/envs/local apply
+  #   docker compose run --rm gotools go test ./...
+  #   docker compose run --rm smoke
+  #
+  # They are on the linkpulse network, so `localstack` and `api` resolve by name.
+  # ---------------------------------------------------------------------------------
+  terraform:
+    image: hashicorp/terraform:1.16
+    profiles: [tools]
+    networks: [linkpulse]
+    working_dir: /repo
+    volumes:
+      - .:/repo
+    environment:
+      TF_IN_AUTOMATION: "1"
+      TF_VAR_localstack_endpoint: http://localstack:4566
+      # Passed through from the host shell for envs/bootstrap, envs/aws and
+      # envs/aws-burst; unset locally, and envs/local hardcodes `test` credentials so a
+      # real key in the shell can never reach LocalStack's environment by accident. No
+      # ~/.aws mount: a home-directory bind mount is the one path shape Compose cannot
+      # make portable across Windows and POSIX hosts, and three variables in a shell are
+      # not a hardship for a 72-hour window.
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      AWS_SESSION_TOKEN:
+      AWS_REGION:
+
+  gotools:
+    image: golang:1.27.1
+    profiles: [tools]
+    networks: [linkpulse]
+    working_dir: /repo/app/graphql-api
+    volumes:
+      - .:/repo
+      # Named volume for the module cache: without it every invocation re-downloads
+      # the dependency tree, which turns a 2-second test run into a 90-second one.
+      - go-mod-cache:/go/pkg/mod
+    entrypoint: [""]
+
+  # k3d and kubectl.
+  #
+  # Both are here for the same reason terraform and gotools are: so the cluster can be
+  # created and driven without either binary on the host. The k3d image is built FROM
+  # scratch -- it contains the k3d binary and nothing else, no shell, no sed, not even
+  # /bin/sh -- so every cluster operation has to be expressible as a single tool
+  # invocation. That constraint is why the cluster tasks in mise.toml are three separate
+  # container calls rather than one bootstrap script, and why the kubeconfig is rewritten
+  # with `kubectl config set-cluster` instead of sed.
+  k3d:
+    image: ghcr.io/k3d-io/k3d:5.9.0
+    profiles: [tools]
+    working_dir: /repo
+    # k3d only ever talks to the Docker socket, so it needs no network of its own -- but it
+    # has to be given one anyway. Compose puts a service with no `networks` key onto the
+    # project default network, which it creates on first use: leaving this out produced a
+    # stray `linkpulse_default` network on every invocation. Joining the real network
+    # instead costs one CoreDNS record for an ephemeral helper container that has already
+    # exited by the time anything could resolve it.
+    networks: [linkpulse]
+    volumes:
+      - .:/repo
+      # k3d does not run Kubernetes; it drives the host's Docker daemon to run it. Every
+      # node is a container created through this socket, which is also why the cluster
+      # survives this container exiting.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  kubectl:
+    # Matched to the cluster's minor version rather than kept current. See .tool-versions:
+    # the supported skew is one minor in either direction, and both the k3d cluster and
+    # the EKS target run 1.34.
+    #
+    # The same image as `ops` below with kubectl as the entrypoint, and it used to be
+    # rancher/kubectl. The change is for the burst: a kubeconfig from `aws eks
+    # update-kubeconfig` authenticates through an exec plugin -- `aws eks get-token` --
+    # which has to be on kubectl's PATH, and rancher/kubectl ships kubectl and nothing
+    # else. One image whose kubectl is the same 1.34.5 means every task in mise.toml that
+    # says `docker compose run --rm kubectl` drives EKS as well as k3d, with only the
+    # kubeconfig changing (LINKPULSE_KUBECONFIG, set by the burst-* tasks).
+    image: alpine/k8s:1.34.5
+    entrypoint: ["kubectl"]
+    profiles: [tools]
+    networks: [linkpulse]
+    working_dir: /repo
+    # Runs as root, and the alternative is worse.
+    #
+    # k3d writes the kubeconfig mode 0600 owned by root -- correctly, because it contains a
+    # client certificate with cluster-admin. A non-root user in this container cannot
+    # read it, which fails with a bare "permission denied" that looks like a missing
+    # file. The two ways out are to run this throwaway CLI container as root or to relax
+    # the kubeconfig to 0644, and the second would leave a cluster-admin credential
+    # world-readable on the host filesystem to save nothing.
+    user: "0:0"
+    volumes:
+      - .:/repo
+    environment:
+      # Written by `mise run cluster-up`, and pointing at the API server by container name
+      # over this network -- see k8s/k3d/cluster.yaml for why that name is in the
+      # certificate. The burst tasks point this at .kube/burst instead, which `aws eks
+      # update-kubeconfig` writes, and which is why the AWS variables are passed through.
+      KUBECONFIG: ${LINKPULSE_KUBECONFIG:-/repo/.kube/config}
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      AWS_SESSION_TOKEN:
+      AWS_REGION:
+
+  # Trivy, for the HIGH/CRITICAL gate. The same invocation CI uses, so a scan that would
+  # fail the pipeline fails here first. It scans the image through the Docker socket
+  # rather than pulling from a registry, because locally the image is linkpulse:local and
+  # exists nowhere else.
+  trivy:
+    image: aquasec/trivy:0.74.0
+    profiles: [tools]
+    networks: [linkpulse]
+    working_dir: /repo
+    volumes:
+      - .:/repo
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The vulnerability database is ~50 MB and refreshed every six hours; without a
+      # volume every scan starts by downloading it.
+      - trivy-cache:/root/.cache/trivy
+
+  # The ops container: the kubectl image above with its shell as the entrypoint, for the
+  # phase-8 scripts that need more than one tool in a single process -- kubeseal talks
+  # to the cluster AND reads a certificate file (scripts/seal*.sh), backup.py needs a
+  # Python with a signed DynamoDB client, the burst teardown needs kubectl and the AWS
+  # CLI in one loop. alpine/k8s bundles kubectl, kubeseal, helm, the AWS CLI and a
+  # Python that carries botocore (the CLI is built on it), and is tagged by its kubectl
+  # version so it matches the cluster. One community image beats a Dockerfile that
+  # re-downloads four binaries to match a text file.
+  #
+  # Two versions here are deliberately NOT the ones .tool-versions pins: the bundle ships
+  # AWS CLI v1 (2.36 is pinned for a host install) and helm 4.1 (4.3 pinned). Neither
+  # difference reaches anything this project runs -- `aws eks`, `aws sts`, `helm
+  # upgrade --install` are the same commands in both.
+  ops:
+    image: alpine/k8s:1.34.5
+    profiles: [tools]
+    networks: [linkpulse]
+    working_dir: /repo
+    user: "0:0"
+    volumes:
+      - .:/repo
+    environment:
+      KUBECONFIG: ${LINKPULSE_KUBECONFIG:-/repo/.kube/config}
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      AWS_SESSION_TOKEN:
+      AWS_REGION:
+      # botocore reads AWS_DEFAULT_REGION, not AWS_REGION, when no region is passed --
+      # and the scripts pass one, so this is only for `aws` invoked by hand.
+      AWS_DEFAULT_REGION:
+
+  # k6, for the load baseline (load-testing/k6/baseline.js) and experiment 1's traffic
+  # (throttle.js). Pinned to the .tool-versions version. It reaches the ingress by the
+  # load balancer's container name over plain HTTP: the TLS chain is smoke.py's and
+  # tls-check.py's to verify, and k6 has no flag to trust one extra CA without a system
+  # store. The output directory is bind-mounted with the repo, so --summary-export lands
+  # in load-testing/k6/output/ (gitignored; the committed artefact is what the tracker and
+  # the case study quote from it).
+  k6:
+    image: grafana/k6:2.2.0
+    profiles: [tools]
+    networks: [linkpulse]
+    working_dir: /repo
+    volumes:
+      - .:/repo
+    environment:
+      BASE_URL: http://k3d-linkpulse-serverlb
+
+  smoke:
+    image: python:3.13-alpine
+    profiles: [tools]
+    networks: [linkpulse]
+    working_dir: /repo
+    volumes:
+      - .:/repo
+    command: ["python3", "scripts/smoke.py", "--base-url", "http://api:8080"]
+
+  # ---------------------------------------------------------------------------------
+  # The API (profile: app)
+  #
+  # This is the fast inner loop, NOT the deployment path. The shipping path is the k3d
+  # cluster with the manifests in k8s/ — that is what gets exercised by the chaos
+  # experiments and what mirrors EKS. Running the image here skips the build-push-rollout
+  # cycle when the thing being changed is application code, and it is how the smoke test
+  # runs in CI without standing up a cluster.
+  #
+  # Deliberately reads its configuration from the same environment variables the
+  # Kubernetes manifests set, so the two paths cannot drift into different behaviour.
+  # ---------------------------------------------------------------------------------
+  api:
+    image: linkpulse:local
+    profiles: [app]
+    container_name: linkpulse-api
+    networks: [linkpulse]
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DDB_ENDPOINT: http://localstack:4566
+      DDB_TABLE: linkpulse
+      AWS_REGION: ap-south-1
+      # LocalStack accepts anything; these are placeholders, not secrets.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      CLICK_SHARDS: "16"
+      PUBLIC_BASE_URL: http://localhost:8080
+      LINKPULSE_VERSION: local
+    depends_on:
+      localstack:
+        condition: service_healthy
+    # No healthcheck, and it is not an omission: the image is distroless, so there is no
+    # shell, no wget and no curl inside it to run one with. `docker compose up --wait`
+    # therefore reports this container healthy as soon as it is running, which is weaker
+    # than it sounds — so `mise run smoke` is the actual readiness gate, and the dev task
+    # runs it rather than trusting --wait. In the cluster this is the kubelet's job, and
+    # k8s/manifests carries the real probes.

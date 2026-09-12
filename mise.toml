@@ -1,0 +1,804 @@
+# mise tasks — the canonical task runner for this repository.
+#
+# Tool versions live in .tool-versions (mise reads both files); this file holds only
+# tasks.
+#
+# ---------------------------------------------------------------------------------------
+# Why tasks live here rather than only in a Makefile
+#
+# The plan's claim is that Docker and mise are the only host prerequisites, and the plan
+# also specifies a Makefile. Those two are in tension: GNU make is not installable through
+# mise, and it is absent by default on Windows — verified on one of the machines this
+# project is meant to run on. A Makefile-only workflow would therefore make `make` a third
+# prerequisite on some hosts and quietly break the claim.
+#
+# So: every task is defined here, and the Makefile forwards to `mise run <task>` for
+# people on Linux and macOS who type `make dev` out of habit. One implementation, two
+# entry points, and the two-prerequisite claim survives.
+#
+# Every task runs inside a container. That is the other half of the claim — none of these
+# need terraform, Go or Python on the host, only Docker.
+# ---------------------------------------------------------------------------------------
+
+[tasks.up]
+description = "Start LocalStack and wait until healthy"
+run = "docker compose up -d --wait localstack"
+
+[tasks.down]
+description = "Stop the supporting services, keeping their data"
+run = "docker compose down"
+
+[tasks.clean]
+description = "Stop everything — cluster included — and delete all local state"
+run = [
+  # The cluster goes first, and the order is load-bearing rather than tidy.
+  #
+  # The k3d nodes are attached to the linkpulse network, so while they exist Docker
+  # refuses to remove it: `compose down` reports "network linkpulse has active endpoints"
+  # and leaves it behind. Worse, every later `docker compose run` that needs to recreate
+  # that network — which is any run at all after the network definition changes — fails
+  # the same way, including the very task that would delete the cluster. Tearing the
+  # cluster down first is what keeps `clean` from being able to wedge itself.
+  "mise run cluster-down",
+  "docker compose --profile tools --profile app down -v --remove-orphans",
+  # LocalStack is in-memory, so its resources vanish with the container — which leaves
+  # the local Terraform state describing things that no longer exist. Removing it is
+  # required, not tidiness: the next apply would otherwise try to update resources it
+  # cannot find.
+  "rm -f infra/terraform/envs/local/terraform.tfstate infra/terraform/envs/local/terraform.tfstate.backup",
+]
+
+# ---------------------------------------------------------------------------------------
+# Terraform
+# ---------------------------------------------------------------------------------------
+
+[tasks.tf-fmt]
+description = "Rewrite Terraform files to canonical format"
+run = "docker compose run --rm --entrypoint sh terraform -c 'terraform fmt -recursive -list infra/terraform'"
+
+[tasks.tf-check]
+description = "Format check plus init and validate for every environment (no credentials needed)"
+# The script path is relative to the service's working_dir, not /repo/scripts/tf-check.sh.
+# Git Bash rewrites any argument that looks like an absolute POSIX path into a Windows one
+# before the process sees it, so the absolute form reaches the container as
+# C:/…/Git/repo/scripts/tf-check.sh and fails with "No such file or directory" — naming a
+# path nobody wrote. The same trap bit `k3d kubeconfig write --output`; both now pass
+# relative paths, which nothing rewrites.
+run = "docker compose run --rm --entrypoint sh terraform scripts/tf-check.sh"
+
+[tasks.tf-local-apply]
+description = "Apply the local environment against LocalStack"
+depends = ["up"]
+run = "docker compose run --rm --entrypoint sh terraform -c 'terraform -chdir=infra/terraform/envs/local init -input=false && terraform -chdir=infra/terraform/envs/local apply -auto-approve -input=false'"
+
+[tasks.tf-local-plan]
+description = "Plan the local environment; exits 2 if there is drift"
+run = "docker compose run --rm --entrypoint sh terraform -c 'terraform -chdir=infra/terraform/envs/local plan -detailed-exitcode -input=false'"
+
+[tasks.tf-local-destroy]
+description = "Destroy the local environment"
+run = "docker compose run --rm --entrypoint sh terraform -c 'terraform -chdir=infra/terraform/envs/local destroy -auto-approve -input=false'"
+
+# ---------------------------------------------------------------------------------------
+# Real AWS — the always-free environment and the metered burst
+#
+# Everything below needs credentials in the shell (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+# AWS_REGION; docker-compose.yml passes them through to the terraform, kubectl and ops
+# containers) and infra/terraform/backend.hcl + the two terraform.tfvars files, copied
+# from their .example neighbours. None of it has run: there are no AWS credentials on
+# the machine this was written on. The tracker records that, and the burst runbook
+# (phase 10) is where these get their first execution -- every task here is one command
+# so that the runbook can quote them and a failure names one step.
+#
+# apply and destroy deliberately prompt. These are the only tasks in the file that touch
+# something that costs money, and -auto-approve on a metered environment is how a typo
+# in a tfvars file becomes a bill.
+# ---------------------------------------------------------------------------------------
+
+[tasks.aws-whoami]
+description = "Which account and principal the shell's credentials resolve to -- run before anything else"
+run = "docker compose run --rm ops aws sts get-caller-identity"
+
+[tasks.tf-bootstrap-apply]
+description = "Once per account: create the Terraform state bucket (local state, see envs/bootstrap) and print the backend block"
+run = [
+  "docker compose run --rm terraform -chdir=infra/terraform/envs/bootstrap init -input=false",
+  "docker compose run --rm terraform -chdir=infra/terraform/envs/bootstrap apply -input=false",
+  "docker compose run --rm terraform -chdir=infra/terraform/envs/bootstrap output backend_config",
+]
+
+[tasks.tf-aws-init]
+description = "Init the always-free environment against the state bucket named in infra/terraform/backend.hcl"
+run = "docker compose run --rm terraform -chdir=infra/terraform/envs/aws init -backend-config=../../backend.hcl -input=false -reconfigure"
+
+[tasks.tf-aws-plan]
+description = "Plan the always-free environment"
+depends = ["tf-aws-init"]
+run = "docker compose run --rm terraform -chdir=infra/terraform/envs/aws plan -input=false"
+
+[tasks.tf-aws-apply]
+description = "Apply the always-free environment: table, IAM, VPC, budgets (prompts for approval)"
+depends = ["tf-aws-init"]
+run = "docker compose run --rm terraform -chdir=infra/terraform/envs/aws apply -input=false"
+
+[tasks.tf-burst-init]
+description = "Init the metered environment against the same bucket, separate state key"
+run = "docker compose run --rm terraform -chdir=infra/terraform/envs/aws-burst init -backend-config=../../backend.hcl -input=false -reconfigure"
+
+[tasks.tf-burst-plan]
+description = "Plan the metered environment and print its estimated cost"
+depends = ["tf-burst-init"]
+run = "docker compose run --rm terraform -chdir=infra/terraform/envs/aws-burst plan -input=false"
+
+[tasks.tf-burst-apply]
+description = "Apply the metered environment: EKS, nodes, IRSA roles (prompts; ~20 minutes; the clock starts here)"
+depends = ["tf-burst-init"]
+run = [
+  "docker compose run --rm terraform -chdir=infra/terraform/envs/aws-burst apply -input=false",
+  "docker compose run --rm terraform -chdir=infra/terraform/envs/aws-burst output",
+]
+
+[tasks.tf-burst-destroy]
+description = "Destroy the metered environment (prompts). Run burst-down instead, which empties the cluster first"
+depends = ["tf-burst-init"]
+run = "docker compose run --rm terraform -chdir=infra/terraform/envs/aws-burst destroy -input=false"
+
+[tasks.burst-kubeconfig]
+description = "Write .kube/burst for the EKS cluster and prove kubectl can reach it"
+env = { LINKPULSE_KUBECONFIG = "/repo/.kube/burst" }
+run = [
+  "docker compose run --rm ops aws eks update-kubeconfig --name linkpulse-burst --kubeconfig .kube/burst",
+  "docker compose run --rm kubectl get nodes -o wide",
+]
+
+[tasks.burst-alb-controller]
+description = "Install the AWS Load Balancer Controller with Helm: paste terraform output alb_controller_helm_args after --"
+env = { LINKPULSE_KUBECONFIG = "/repo/.kube/burst" }
+# The one Helm install in the project; platform/aws-load-balancer-controller/values.yaml
+# says why. The cluster-specific flags (name, VPC, role ARN) come from `terraform
+# output alb_controller_helm_args` and are appended after `--`, so nothing account-
+# specific is committed:
+#
+#   mise run burst-alb-controller -- --set clusterName=linkpulse-burst --set region=... --set vpcId=... --set serviceAccount.annotations.eks\.amazonaws\.com/role-arn=...
+run = "docker compose run --rm ops helm upgrade --install aws-load-balancer-controller aws-load-balancer-controller --repo https://aws.github.io/eks-charts --version 3.5.0 --namespace kube-system --values platform/aws-load-balancer-controller/values.yaml --wait --timeout 10m"
+
+[tasks.burst-up]
+description = "The burst, end to end: cluster, platform, ALB controller, ArgoCD, bootstrap from GitHub. Read docs/burst-runbook.md first"
+env = { LINKPULSE_KUBECONFIG = "/repo/.kube/burst" }
+# The same tasks the k3d path runs, against a different kubeconfig. That reuse is the
+# point: platform-apply, argocd-install and the health waits are exercised on every
+# local `dev`, so what is new on burst day is the cluster, not the procedure.
+#
+# Not included, because each needs a value from `terraform output` pasted by a human:
+# burst-alb-controller (the --set flags) and the substitutions the aws overlays carry as
+# placeholders (the IRSA role ARN, the OWNER in repoURLs). The runbook orders them.
+run = [
+  "mise run aws-whoami",
+  "mise run tf-burst-apply",
+  "mise run burst-kubeconfig",
+  "mise run platform-apply",
+  "mise run argocd-install",
+  "docker compose run --rm kubectl apply -k gitops/argocd/bootstrap/aws",
+  "docker compose run --rm kubectl wait --for=create application/linkpulse -n argocd --timeout=300s",
+  "docker compose run --rm kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/linkpulse -n argocd --timeout=900s",
+  "mise run argocd-status",
+  "echo 'Now: mise run burst-alb-controller -- <terraform output alb_controller_helm_args>, then watch the Ingress for an address'",
+]
+
+[tasks.burst-argocd-ui]
+description = "Port-forward the burst cluster's ArgoCD UI to http://localhost:8089 (Ctrl-C to stop)"
+env = { LINKPULSE_KUBECONFIG = "/repo/.kube/burst" }
+run = "docker compose run --rm -p 127.0.0.1:8089:8080 kubectl port-forward -n argocd svc/argocd-server 8080:80 --address 0.0.0.0"
+
+[tasks.burst-down]
+description = "End the burst safely: back the table up, empty the cluster so the ALB is released, destroy, then prove nothing is still billing"
+env = { LINKPULSE_KUBECONFIG = "/repo/.kube/burst" }
+# The order is the safety property. Backup first, because the next steps are the ones
+# that cannot be undone. Empty the cluster before destroying it, because the ALB the
+# controller made from the Ingress is not in any Terraform state and outlives a cluster
+# that is destroyed underneath it (scripts/burst-teardown.sh has the full argument).
+# Then metered-resources with --expect-none: a non-zero exit is a leak to go and find
+# NOW, in the same minute, rather than when the $1 tripwire fires tomorrow.
+run = [
+  "mise run backup",
+  "docker compose run --rm ops sh scripts/burst-teardown.sh linkpulse-burst",
+  "mise run tf-burst-destroy",
+  "mise run metered -- --expect-none",
+  "mise run cost-report",
+]
+
+# ---------------------------------------------------------------------------------------
+# Operations — backup, restore, cost, and the "is anything billing" audit
+# ---------------------------------------------------------------------------------------
+
+[tasks.backup]
+description = "Export the real table to backups/ (paced under the free read capacity). Args after -- go to backup.py"
+run = "docker compose run --rm ops python3 scripts/backup.py export --table linkpulse"
+
+[tasks.restore]
+description = "Restore the real table from a backup: mise run restore -- --in backups/<file>.jsonl.gz"
+run = "docker compose run --rm ops python3 scripts/backup.py restore --table linkpulse"
+
+[tasks.backup-verify]
+description = "Compare the real table against a backup: mise run backup-verify -- --in backups/<file>.jsonl.gz"
+run = "docker compose run --rm ops python3 scripts/backup.py verify --table linkpulse"
+
+[tasks.backup-check]
+description = "Prove backup and restore on LocalStack: export, destroy and recreate the table, restore, verify byte for byte"
+depends = ["up"]
+# Destructive to the local table, deliberately: a restore that has only ever been run
+# against a table that still had its data proves nothing. Not part of `dev` for that
+# reason -- the application pods flap NotReady for the seconds the table is gone.
+run = [
+  "docker compose run --rm -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_REGION=ap-south-1 ops python3 scripts/backup.py export --endpoint-url http://localstack:4566 --table linkpulse --out backups/backup-check.jsonl.gz",
+  "mise run tf-local-destroy",
+  "mise run tf-local-apply",
+  "docker compose run --rm -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_REGION=ap-south-1 ops python3 scripts/backup.py restore --endpoint-url http://localstack:4566 --table linkpulse --in backups/backup-check.jsonl.gz",
+  "docker compose run --rm -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_REGION=ap-south-1 ops python3 scripts/backup.py verify --endpoint-url http://localstack:4566 --table linkpulse --in backups/backup-check.jsonl.gz",
+  "docker compose run --rm -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_REGION=ap-south-1 ops python3 scripts/metered-resources.py --endpoint-url http://localstack:4566",
+]
+
+[tasks.cost-report]
+description = "Cost Explorer by day and service plus the budgets, as markdown ($0.02 per run). Args after -- go to cost-report.py"
+run = "docker compose run --rm ops python3 scripts/cost-report.py"
+
+[tasks.metered]
+description = "Everything in the account billing by the hour; add -- --expect-none to make it a gate"
+run = "docker compose run --rm ops python3 scripts/metered-resources.py"
+
+# ---------------------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------------------
+
+[tasks.app-test]
+description = "gofmt, vet and the unit tests"
+run = "docker compose run --rm gotools sh -c 'test -z \"$(gofmt -l .)\" && go vet ./... && go test ./...'"
+
+[tasks.app-build]
+description = "Build the container image as linkpulse:local"
+run = "docker build -t linkpulse:local app/graphql-api"
+
+[tasks.app-build-bad]
+description = "Build the deliberately broken image for chaos experiment 2 (readiness fails, liveness passes)"
+run = "docker build --build-arg BREAK_READINESS=1 -t linkpulse:bad app/graphql-api"
+
+[tasks.scan]
+description = "Trivy: fail on HIGH/CRITICAL vulnerabilities in linkpulse:local — the same gate CI applies"
+depends = ["app-build"]
+# --ignore-unfixed: a finding with no fixed version available is not something a rebuild
+# can address, so failing on it blocks every deploy until upstream ships a patch. It is
+# reported, not gated. Everything with a fix is gated -- the distroless base is what makes
+# that a bar the image actually clears rather than a permanent exception list.
+run = "docker compose run --rm trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 linkpulse:local"
+
+[tasks.app-run]
+description = "Run the API against LocalStack — the fast inner loop, not the deployment path"
+depends = ["up"]
+run = "docker compose --profile app up -d --wait api"
+
+[tasks.smoke]
+description = "End-to-end assertions against the running API (every access pattern A1-A7)"
+run = "docker compose run --rm smoke"
+
+
+# ---------------------------------------------------------------------------------------
+# Kubernetes — the k3d cluster and the manifests that ship to it
+#
+# Note the shape of every task below: a sequence of single tool invocations, never a
+# script. That is forced, not stylistic. The k3d image is built FROM scratch and contains
+# no shell at all, so there is nothing inside it to run a bootstrap script with, and
+# putting the script on the host would make a POSIX shell a third prerequisite on Windows
+# — the exact claim this file exists to protect.
+#
+# The one piece of control flow used, `A || B`, behaves identically in sh and in cmd,
+# which is why it is the only one used.
+# ---------------------------------------------------------------------------------------
+
+[tasks.cluster-up]
+description = "Create the three-node k3d cluster (idempotent) and write a kubeconfig for the tool containers"
+run = [
+  # `cluster list <name>` exits 1 when the cluster is absent, so this creates it only when
+  # missing and re-running is free. Deliberately not `delete || create`: that would destroy
+  # a working cluster — and 10+ minutes of image pulls — every time `dev` was re-run.
+  #
+  # It also does not mask a real failure. If the cluster is absent, `create` runs and its
+  # exit code is the task's; only the existence check is allowed to fail.
+  "docker compose run --rm k3d cluster list linkpulse || docker compose run --rm k3d cluster create --config k8s/k3d/cluster.yaml",
+
+  # k3d writes the file itself rather than the task redirecting its stdout. On Windows,
+  # PowerShell's `>` writes UTF-16 by default, which produces a kubeconfig that every
+  # client rejects as malformed — a portability trap with a genuinely baffling error.
+  #
+  # The path is relative to the service's working_dir and NOT written as /repo/.kube/config.
+  # Git Bash rewrites any argument that looks like an absolute POSIX path into a Windows
+  # one before the process ever sees it, so the absolute form silently wrote the kubeconfig
+  # to C:/…/Git/repo/.kube/config inside the container — no error, and the next step then
+  # read whatever stale file happened to be at the real path.
+  "docker compose run --rm k3d kubeconfig write linkpulse --output .kube/config",
+
+  # k3d points the kubeconfig at host.docker.internal, which is right for a host kubectl
+  # and useless here, because every kubectl in this project runs in a container on the
+  # linkpulse network. Rewriting it with kubectl's own config command rather than sed is
+  # again the no-shell constraint: the k3d image has no sed, and adding an image that does
+  # would be a third container to pin for one substitution.
+  "docker compose run --rm kubectl config set-cluster k3d-linkpulse --server=https://k3d-linkpulse-serverlb:6443",
+
+  # k3d reports the cluster "created" once the nodes are up, which is well before it can
+  # run anything: k3s installs Traefik through a HelmChart custom resource, so the traefik
+  # Deployment does not exist yet at that point. Returning here without waiting would make
+  # `k8s-apply` the step that appears to fail, with an ingress that routes nowhere.
+  #
+  # Two waits, because they answer different questions. `--for=create` is needed first
+  # precisely because `kubectl wait --for=condition=Available` errors out immediately on a
+  # resource that does not exist rather than waiting for it to appear — the failure mode
+  # this pair exists to avoid.
+  "docker compose run --rm kubectl wait --for=create deploy/traefik -n kube-system --timeout=600s",
+  "docker compose run --rm kubectl wait --for=condition=Available deploy/traefik deploy/metrics-server deploy/coredns -n kube-system --timeout=600s",
+]
+
+[tasks.cluster-down]
+description = "Delete the k3d cluster (safe to run when there is none)"
+# k3d exits 0 and says so when the cluster is already gone, so this needs no guard.
+run = "docker compose run --rm k3d cluster delete linkpulse"
+
+[tasks.cluster-info]
+description = "Nodes, workloads and autoscaler state"
+run = [
+  "docker compose run --rm kubectl get nodes -o wide",
+  "docker compose run --rm kubectl get pods,svc,ingress,hpa,pdb -n linkpulse -o wide",
+]
+
+[tasks.k8s-image]
+description = "Build the image and side-load it into every cluster node"
+depends = ["app-build"]
+# The cluster has no registry and the local overlay sets imagePullPolicy: Never, so this
+# import is the only way the image reaches a node. The CI path does not use it — there the
+# image comes from ghcr.io by digest, which is the path that has to work for EKS.
+run = "docker compose run --rm k3d image import linkpulse:local --cluster linkpulse"
+
+[tasks.k8s-apply]
+description = "Apply the local overlay and wait for the rollout"
+run = [
+  "docker compose run --rm kubectl apply -k k8s/manifests/overlays/local",
+  # `rollout status` is the gate, not decoration: it returns non-zero when the Deployment
+  # exceeds progressDeadlineSeconds, which is exactly what a bad image does. Without it the
+  # task would report success the moment the API server accepted the manifests, whether or
+  # not a single pod ever became ready.
+  "docker compose run --rm kubectl rollout status deploy/linkpulse -n linkpulse --timeout=180s",
+  # The Ingress asked cert-manager for a certificate (overlays/local/patch-ingress-tls.yaml)
+  # and that happens asynchronously: ingress-shim creates the Certificate, the CA issuer
+  # signs it, the Secret appears, Traefik notices. Until then Traefik serves its default
+  # self-signed certificate on this name and the smoke test's verification would fail --
+  # correctly, and for a reason that has nothing to do with the application. Two waits, as
+  # ever: existence first, because `--for=condition` errors on an object that is not there.
+  "docker compose run --rm kubectl wait --for=create certificate/linkpulse-tls -n linkpulse --timeout=120s",
+  "docker compose run --rm kubectl wait --for=condition=Ready certificate/linkpulse-tls -n linkpulse --timeout=120s",
+]
+
+[tasks.k8s-delete]
+description = "Remove the application from the cluster, leaving the cluster running"
+run = "docker compose run --rm kubectl delete -k k8s/manifests/overlays/local --ignore-not-found"
+
+[tasks.k8s-smoke]
+description = "Run the end-to-end assertions against the cluster, through the Traefik ingress"
+# Through the ingress by container name, not through a port-forward. A port-forward would
+# bypass Traefik and the Service and test only the pod — so an Ingress rule that matched
+# nothing would still pass. This path exercises everything a real client crosses.
+#
+# The address is the k3d load balancer rather than linkpulse.localtest.me because that name
+# resolves to 127.0.0.1, which inside this container is its own loopback. The base Ingress
+# carries a hostless rule so that a request by any name still routes.
+#
+# Over TLS since phase 8, and *verified*: --ca-cert is the CA `tls-ca` exported, and the
+# certificate Traefik serves for this name has to chain to it and carry the name in its
+# SANs (the local overlay puts the in-cluster name there for exactly this). So a green
+# smoke now also means cert-manager issued, Traefik picked the Secret up, and the chain
+# is real -- not `--insecure`, which would pass against anything.
+depends = ["tls-ca"]
+run = "docker compose run --rm smoke python3 scripts/smoke.py --base-url https://k3d-linkpulse-serverlb --ca-cert certs/ca.crt"
+
+[tasks.k8s-render]
+description = "Render every kustomization (app overlays and the GitOps layer) — no cluster, no credentials"
+run = [
+  "docker compose run --rm kubectl kustomize k8s/manifests/overlays/local",
+  "docker compose run --rm kubectl kustomize k8s/manifests/overlays/aws",
+  "docker compose run --rm kubectl kustomize monitoring/overlays/local",
+  "docker compose run --rm kubectl kustomize monitoring/overlays/aws",
+  "docker compose run --rm kubectl kustomize platform/cert-manager",
+  "docker compose run --rm kubectl kustomize platform/sealed-secrets",
+  "docker compose run --rm kubectl kustomize gitops/argocd/install",
+  "docker compose run --rm kubectl kustomize gitops/argocd/apps/local",
+  "docker compose run --rm kubectl kustomize gitops/argocd/apps/aws",
+  "docker compose run --rm kubectl kustomize gitops/argocd/bootstrap/local",
+  "docker compose run --rm kubectl kustomize gitops/argocd/bootstrap/aws",
+]
+
+
+
+# ---------------------------------------------------------------------------------------
+# Platform — cert-manager (TLS from the cluster's own CA) and Sealed Secrets
+#
+# These are what the application's AppProject is deliberately not allowed to install
+# (CRDs, admission webhooks), so they have a project of their own in gitops/ and, on the
+# kubectl path, a task of their own here. Applied before the application because the
+# Ingress asks the CA for a certificate by annotation, and before monitoring for the same
+# reason. Both are adopted by ArgoCD from the same directories without a diff.
+# ---------------------------------------------------------------------------------------
+
+[tasks.platform-apply]
+description = "Apply cert-manager and Sealed Secrets, restore a backed-up sealing key if there is one, and wait until both are serving"
+run = [
+  # --server-side for the same reason as argocd-install: CRDs, some of them large.
+  "docker compose run --rm kubectl apply --server-side --force-conflicts -k platform/cert-manager/install",
+  "docker compose run --rm kubectl wait --for=condition=Available deploy -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=600s",
+
+  # "Available" is not "accepting Certificates". The webhook Deployment is ready a few
+  # seconds before cainjector has written its CA into the ValidatingWebhookConfiguration,
+  # and until then the API server rejects every cert-manager object with an x509 error
+  # that reads like a broken install. Waiting for the caBundle field to exist is the
+  # precise signal; a `wait --for=jsonpath` with no value waits for existence.
+  "docker compose run --rm kubectl wait --for=jsonpath={.webhooks[0].clientConfig.caBundle} validatingwebhookconfiguration/cert-manager-webhook --timeout=120s",
+  # The `|| retry` is belt-and-braces for the one remaining gap: the API server caching
+  # the webhook configuration for a beat after the bundle lands. Cheap.
+  "docker compose run --rm kubectl apply -k platform/cert-manager/issuers || docker compose run --rm kubectl apply -k platform/cert-manager/issuers",
+  "docker compose run --rm kubectl wait --for=condition=Ready certificate/linkpulse-ca -n cert-manager --timeout=120s",
+
+  # Sealed Secrets. The namespace first and on its own, because the sealing key -- if a
+  # backup exists -- has to be in place BEFORE the controller starts, and a Secret cannot
+  # be applied into a namespace that does not exist yet. A missing backup is the normal
+  # case on a fresh machine: apply fails on the absent file, the echo says why, and the
+  # controller generates a key of its own. (The idiom masks a genuine apply error too; the
+  # rollout wait two lines down would fail on the consequence.)
+  "docker compose run --rm kubectl apply -f platform/sealed-secrets/install/namespace.yaml",
+  "docker compose run --rm kubectl apply -f certs/sealed-secrets-key.yaml || echo 'no sealing key backup at certs/sealed-secrets-key.yaml; the controller will generate one (run seal-export to keep it)'",
+  "docker compose run --rm kubectl apply --server-side --force-conflicts -k platform/sealed-secrets/install",
+  "docker compose run --rm kubectl rollout status deploy/sealed-secrets-controller -n sealed-secrets --timeout=300s",
+]
+
+[tasks.platform-delete]
+description = "Remove cert-manager and Sealed Secrets (and every certificate and sealed secret with them)"
+run = [
+  "docker compose run --rm kubectl delete -k platform/cert-manager/issuers --ignore-not-found",
+  "docker compose run --rm kubectl delete -k platform/cert-manager/install --ignore-not-found",
+  "docker compose run --rm kubectl delete -k platform/sealed-secrets/install --ignore-not-found",
+]
+
+[tasks.tls-ca]
+description = "Export the cluster CA certificate to certs/ca.crt (gitignored) for the TLS checks, and for a browser if you choose to trust it"
+# The template lives in a file rather than inline because it contains a quoted key and a
+# pipe -- `{{index .data "tls.crt" | base64decode}}` -- and that string means different
+# things to sh, cmd and PowerShell. A -o go-template-file argument means the same thing
+# to all of them.
+#
+# -T (no pseudo-TTY): with a TTY allocated, Docker translates every LF in the output to
+# CRLF, and the file written through the redirect would be a PEM with Windows line endings
+# whatever the host. The public certificate only -- the CA's private key never leaves the
+# cluster, which is the property this design has over a laptop-generated CA.
+run = "docker compose run --rm -T kubectl get secret linkpulse-ca -n cert-manager -o go-template-file=scripts/templates/ca-cert.gotmpl > certs/ca.crt"
+
+[tasks.tls-check]
+description = "Prove every ingress serves a verified certificate from the local CA, and that an unknown name is refused"
+depends = ["tls-ca"]
+run = "docker compose run --rm smoke python3 scripts/tls-check.py --ingress k3d-linkpulse-serverlb --ca certs/ca.crt"
+
+[tasks.seal-export]
+description = "Back up the cluster's sealing key (certs/, gitignored) and commit its public certificate (platform/sealed-secrets/sealing-cert.crt)"
+# Two files with opposite fates. The key backup is what lets a rebuilt cluster -- k3d
+# after `clean`, EKS on burst day -- decrypt what was sealed before it existed; it is a
+# private key and lives under certs/, which git ignores. The certificate is what kubeseal
+# encrypts to; it is public by construction and is committed so that sealing needs no
+# cluster at all.
+run = [
+  "docker compose run --rm -T kubectl get secret -n sealed-secrets -l sealedsecrets.bitnami.com/sealed-secrets-key -o yaml > certs/sealed-secrets-key.yaml",
+  "docker compose run --rm -T ops kubeseal --controller-namespace sealed-secrets --controller-name sealed-secrets-controller --fetch-cert > platform/sealed-secrets/sealing-cert.crt",
+  "echo 'sealing key backed up to certs/sealed-secrets-key.yaml (keep it; never commit it); certificate written to platform/sealed-secrets/sealing-cert.crt (commit it)'",
+]
+
+[tasks.seal]
+description = "Seal a Secret offline against the committed certificate: mise run seal -- <namespace> <name> <out-file> key=value [key=value ...]"
+run = "docker compose run --rm -T ops sh scripts/seal.sh"
+
+[tasks.seal-check]
+description = "Prove the Sealed Secrets round trip on the live cluster: seal a fixture, apply it, read the decrypted value back, and see it garbage-collected"
+run = "docker compose run --rm -T ops sh scripts/seal-check.sh"
+
+# ---------------------------------------------------------------------------------------
+# Observability — Prometheus, Alertmanager, Grafana (+ renderer), Loki, Alloy
+# ---------------------------------------------------------------------------------------
+
+[tasks.mon-apply]
+description = "Apply the monitoring stack (local overlay) and wait for every workload"
+run = [
+  "docker compose run --rm kubectl apply -k monitoring/overlays/local",
+  "docker compose run --rm kubectl rollout status deploy -n monitoring --timeout=900s",
+  "docker compose run --rm kubectl rollout status daemonset -n monitoring --timeout=300s",
+]
+
+[tasks.mon-check]
+description = "Prove the stack is observing: targets up, rules loaded, alerts API, dashboards, render, logs"
+# Runs through the ingress with a Host header per service, from the same python image the
+# smoke test uses. This is the post-chaos health gate: an experiment that leaves the stack
+# unable to render or query has destroyed its own evidence pipeline, and this is what
+# notices.
+run = "docker compose run --rm smoke python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb"
+
+[tasks.mon-delete]
+description = "Remove the monitoring stack, leaving the cluster and the application"
+run = "docker compose run --rm kubectl delete -k monitoring/overlays/local --ignore-not-found"
+
+[tasks.alerts-discord]
+description = "Point Alertmanager at a real Discord webhook: DISCORD_WEBHOOK_URL=https://... mise run alerts-discord"
+# Writes the Secret directly rather than through git, because the URL is a credential:
+# anyone holding it can post to the channel. The local overlay's placeholder Secret is
+# replaced in place; Alertmanager re-reads the file on its next notification, no restart.
+# On EKS the same Secret arrives sealed (monitoring/overlays/aws/sealed/, via `mise run
+# seal`) and this task is not used.
+run = "docker compose run --rm -e DISCORD_WEBHOOK_URL kubectl create secret generic alertmanager-discord -n monitoring --from-literal=webhook-url=$DISCORD_WEBHOOK_URL --dry-run=client -o yaml | docker compose run --rm -T kubectl apply -f -"
+
+# ---------------------------------------------------------------------------------------
+# GitOps — Gitea as the remote, ArgoCD as the deployer
+#
+# `dev` deploys with kubectl and is the fast path. This is the real path: commit, push to
+# the throwaway remote, and watch ArgoCD make the cluster match. Same manifests either way
+# -- ArgoCD adopts what kubectl applied without a diff, since both render the same overlay.
+# ---------------------------------------------------------------------------------------
+
+[tasks.gitea-up]
+description = "Start Gitea and ensure the admin user exists (idempotent)"
+run = [
+  "docker compose up -d --wait gitea",
+  # The gitea image has a shell, unlike k3d's, so the existence check can be exact rather
+  # than `|| true`. `user list` prints a table; the padded match avoids a prefix collision.
+  "docker compose exec gitea sh -c 'gitea admin user list | grep -q \" linkpulse \" || gitea admin user create --admin --username linkpulse --password linkpulse --email linkpulse@localhost --must-change-password=false'",
+]
+
+[tasks.gitops-push]
+description = "Push the current HEAD to the local Gitea remote as main (creates the repo on first push)"
+depends = ["gitea-up"]
+# Git is the one host tool this needs, and it is already a prerequisite in practice --
+# the repository was cloned with it. Basic-auth in the URL is fine for a throwaway remote
+# bound to loopback whose only user has the password `linkpulse`; the aws path uses GitHub
+# and no credential appears anywhere.
+#
+# --force, because the local remote has no history of its own worth protecting and a
+# rebased branch should replace it rather than fail on non-fast-forward.
+run = "git push --force http://linkpulse:linkpulse@localhost:3000/linkpulse/linkpulse.git HEAD:main"
+
+[tasks.argocd-install]
+description = "Install ArgoCD into the cluster from the vendored, pinned manifest"
+run = [
+  # --server-side is required, not preferred. The ApplicationSet CRD is larger than the
+  # 256 KB limit on the last-applied-configuration annotation that client-side apply
+  # writes, so a plain `kubectl apply` installs everything except that one CRD and exits
+  # non-zero with "metadata.annotations: Too long". Server-side apply keeps field ownership
+  # in managedFields instead and has no such limit. --force-conflicts because on a re-run
+  # the fields are owned by the previous apply's manager, and this IS that manager.
+  "docker compose run --rm kubectl apply --server-side --force-conflicts -k gitops/argocd/install",
+  "docker compose run --rm kubectl wait --for=condition=Available deploy -l app.kubernetes.io/part-of=argocd -n argocd --timeout=900s",
+]
+
+[tasks.argocd-bootstrap]
+description = "Apply the root Application; from here ArgoCD owns every other Application"
+run = [
+  "docker compose run --rm kubectl apply -k gitops/argocd/bootstrap/local",
+  # The child Application is created by the root's first sync, asynchronously, so it must
+  # be waited *into existence* before its health can be waited on -- the same two-step as
+  # Traefik in cluster-up.
+  "docker compose run --rm kubectl wait --for=create application/linkpulse -n argocd --timeout=300s",
+  "docker compose run --rm kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/linkpulse -n argocd --timeout=600s",
+  "docker compose run --rm kubectl wait --for=jsonpath='{.status.sync.status}'=Synced application/linkpulse -n argocd --timeout=300s",
+]
+
+[tasks.argocd-password]
+description = "Print the initial admin password for http://argocd.localtest.me:8088 (user: admin)"
+run = "docker compose run --rm kubectl -n argocd get secret argocd-initial-admin-secret -o go-template={{.data.password}}"
+
+[tasks.argocd-status]
+description = "Every Application, with sync and health state"
+run = "docker compose run --rm kubectl get applications -n argocd -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision"
+
+[tasks.gitops]
+description = "The GitOps path end to end: remote, ArgoCD, push, bootstrap, and prove the app is Healthy and Synced"
+run = [
+  "mise run up",
+  "mise run tf-local-apply",
+  "mise run cluster-up",
+  "mise run k8s-image",
+  "mise run argocd-install",
+  "mise run gitops-push",
+  "mise run argocd-bootstrap",
+  "mise run k8s-smoke",
+  "docker compose run --rm kubectl wait --for=create application/monitoring -n argocd --timeout=300s",
+  "docker compose run --rm kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/monitoring -n argocd --timeout=900s",
+  "docker compose run --rm kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/cert-manager application/sealed-secrets -n argocd --timeout=300s",
+  "mise run mon-check",
+  "mise run tls-check",
+  "mise run seal-check",
+  "mise run argocd-status",
+  "echo ''",
+  "echo 'ArgoCD UI  http://argocd.localtest.me:8088   (user admin; password: mise run argocd-password)'",
+]
+
+# ---------------------------------------------------------------------------------------
+# Load and chaos — the k6 baseline, and the five experiments
+#
+# Each experiment is a Python script in scripts/chaos/ with phases (pre / during / post),
+# run in the ops container, and an injection between the phases done by whichever tool
+# owns it: docker for LocalStack, k3d for a node, git for a commit, the script itself for
+# a port-forward or a config API. The phases assert against Prometheus, Alertmanager and
+# the API server -- never against the thing under test directly -- and leave a timeline
+# and rendered panels in docs/evidence/chaos-<n>/, which is committed.
+#
+# Every timeout in the scripts is an observed number from the phase-9 exploratory runs
+# with headroom, not a guess; the tracker has the measurements. `mon-check` runs after
+# each experiment: one that leaves the stack unable to observe has destroyed its own
+# evidence pipeline, and that is a failure of the experiment.
+# ---------------------------------------------------------------------------------------
+
+[tasks.k6-baseline]
+description = "Two minutes of realistic load through the ingress; thresholds are the pass/fail; the export is evidence"
+run = [
+  "docker compose run --rm k6 run load-testing/k6/baseline.js --summary-export docs/evidence/k6/baseline.json",
+  "docker compose run --rm smoke python3 scripts/k6-summary.py docs/evidence/k6/baseline.json",
+]
+
+[tasks.k6-throttle]
+description = "Experiment 1's traffic on its own: 40 redirects/s on one link for 3 minutes (the burst runs this against the real table)"
+run = "docker compose run --rm k6 run load-testing/k6/throttle.js --summary-export load-testing/k6/output/throttle.json"
+
+[tasks.chaos-1]
+description = "Experiment 1: DynamoDB throttles the click writes (k6 on one link; LocalStack write errors injected mid-run)"
+run = [
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment1.py pre",
+  # Detached and named, so the `during` phase runs beside it and `docker wait` collects
+  # its exit afterwards. 20/s for six minutes covers the clean window, the throttle and
+  # the recovery. P99_MS=1000 is LocalStack's allowance (throttle.js says why); the
+  # relative check inside the experiment is the assertion that matters here.
+  "docker rm -f linkpulse-k6-throttle || echo 'no previous k6 container'",
+  "docker compose run -d --name linkpulse-k6-throttle -e RATE=20 -e DURATION=6m -e P99_MS=1000 k6 run load-testing/k6/throttle.js --summary-export load-testing/k6/output/chaos-1-throttle.json",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment1.py during",
+  "docker wait linkpulse-k6-throttle",
+  "docker rm linkpulse-k6-throttle",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment1.py post",
+  "mise run mon-check",
+]
+
+[tasks.chaos-2]
+description = "Experiment 2: a bad deploy through GitOps (readiness fails, liveness passes) and the revert that rolls it back"
+# Needs the gitops path: Gitea holding the tree and ArgoCD deploying from it (mise run
+# gitops). The break and the revert are commits pushed to Gitea by a script in the ops
+# container; nothing touches the cluster by hand, which is the point.
+run = [
+  "mise run app-build-bad",
+  "docker compose run --rm k3d image import linkpulse:bad --cluster linkpulse",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment2.py pre",
+  "docker compose run --rm -T ops sh scripts/chaos/experiment2-git.sh break",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment2.py during",
+  "docker compose run --rm -T ops sh scripts/chaos/experiment2-git.sh revert",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment2.py post",
+  "mise run mon-check",
+]
+
+[tasks.chaos-3]
+description = "Experiment 3: the datastore goes away (LocalStack paused; the table survives)"
+run = [
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment3.py pre",
+  "docker compose pause localstack",
+  # `|| unpause`: if the assertions fail, the store must still come back, or the next
+  # thing anyone runs fails for a reason that has nothing to do with it.
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment3.py during || docker compose unpause localstack",
+  "docker compose unpause localstack",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment3.py post",
+  "mise run mon-check",
+]
+
+[tasks.chaos-4]
+description = "Experiment 4: one pod leaks memory to OOMKilled and on to CrashLoopBackOff, the other keeps serving"
+# No injection line: the script does it through a port-forward to one pod, with the
+# /debug/leak endpoint the local overlay enables. Recovery is the kubelet's, not ours.
+run = [
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment4.py pre",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment4.py during",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment4.py post",
+  "mise run mon-check",
+]
+
+[tasks.chaos-5]
+description = "Experiment 5: a node drained (PDB-governed), then stopped outright; the surviving replica serves throughout"
+# The target is always agent-0, and the `pre` phase makes that a fair target: it moves
+# any single-replica pod (Traefik, Prometheus, ...) off it first and puts an application
+# replica on it. A fixed name is what lets the stop and start below be plain k3d
+# invocations -- reading a chosen name back would need shell substitution, which cmd on
+# Windows does not have and this file does not use.
+run = [
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py pre",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py drain",
+  "docker compose run --rm k3d node stop k3d-linkpulse-agent-0",
+  # `|| start`: a failed assertion must not leave the node stopped.
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py loss || docker compose run --rm k3d node start k3d-linkpulse-agent-0",
+  "docker compose run --rm k3d node start k3d-linkpulse-agent-0",
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py post",
+  "mise run mon-check",
+]
+
+[tasks.chaos-all]
+description = "Every experiment in order, on a cluster brought up by `gitops` (experiment 2 needs ArgoCD)"
+run = [
+  "mise run k6-baseline",
+  "mise run chaos-3",
+  "mise run chaos-1",
+  "mise run chaos-4",
+  "mise run chaos-5",
+  "mise run chaos-2",
+]
+
+# ---------------------------------------------------------------------------------------
+# Composite
+# ---------------------------------------------------------------------------------------
+
+[tasks.verify]
+description = "Everything that needs no running infrastructure — the same gate CI applies"
+depends = ["app-test", "tf-check", "k8s-render"]
+
+[tasks.dev]
+description = "Bring the whole stack up from a clean clone — cluster included — and prove it works"
+# The order is the dependency chain: supporting services, then the table, then a cluster,
+# then an image inside that cluster, then the manifests, and only then the assertions.
+#
+# `k8s-smoke` is included on purpose. A `dev` task that leaves you at a prompt without
+# having checked anything is how a broken environment gets mistaken for a working one —
+# and it runs through the ingress, so a green result means Traefik, the Service, the pods,
+# the probes, the ConfigMap, the Secret and the Terraform-created table are all correct
+# together, not merely present.
+#
+# Cold-machine cost: roughly fifteen minutes, nearly all of it k3s pulling CoreDNS,
+# Traefik and metrics-server through containerd. Re-runs take about a minute because
+# `cluster-up` keeps an existing cluster. `dev-compose` is the fast loop when the cluster
+# is not what is being changed.
+run = [
+  "mise run up",
+  "mise run tf-local-apply",
+  "mise run cluster-up",
+  "mise run platform-apply",
+  "mise run k8s-image",
+  "mise run k8s-apply",
+  "mise run k8s-smoke",
+  "mise run mon-apply",
+  "mise run mon-check",
+  # ArgoCD is the `gitops` task's, not this one's, so its ingress has no certificate here
+  # and the check says so rather than counting it.
+  "mise run tls-check -- --skip argocd.localtest.me",
+  "mise run seal-check",
+  "echo ''",
+  "echo 'LinkPulse is up on k3d:'",
+  "echo '  dashboard     http://linkpulse.localtest.me:8088     https://linkpulse.localtest.me:8443'",
+  "echo '  graphql       http://linkpulse.localtest.me:8088/graphql'",
+  "echo '  metrics       http://linkpulse.localtest.me:8088/metrics'",
+  "echo '  grafana       http://grafana.localtest.me:8088       (anonymous viewer; admin/admin to edit)'",
+  "echo '  prometheus    http://prometheus.localtest.me:8088'",
+  "echo '  alertmanager  http://alertmanager.localtest.me:8088'",
+  "echo '  localstack    http://localhost:4566'",
+  "echo ''",
+  "echo 'Every https:// name is on port 8443 with a certificate from the cluster CA. To make a'",
+  "echo 'browser trust it, import certs/ca.crt as a root (optional; nothing here needs it).'",
+  "echo ''",
+  "echo 'Cluster:  mise run cluster-info'",
+]
+
+[tasks.dev-compose]
+description = "The fast inner loop: the API in a container against LocalStack, no cluster"
+# What `dev` was before the cluster existed. Kept as its own entry point because a
+# fifteen-second edit-test cycle and a fifteen-minute one are different tools, and forcing
+# application work through the deployment path just makes the deployment path resented.
+run = [
+  "mise run up",
+  "mise run tf-local-apply",
+  "mise run app-build",
+  "mise run app-run",
+  "mise run smoke",
+  "echo ''",
+  "echo 'LinkPulse is up (compose):'",
+  "echo '  dashboard   http://localhost:8080'",
+  "echo '  graphql     http://localhost:8080/graphql'",
+  "echo '  metrics     http://localhost:8080/metrics'",
+]
