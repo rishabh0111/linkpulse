@@ -8,7 +8,7 @@ of Work.
 
 **Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
 
-The repository is on GitHub and CI has run four times. Seven of the eight jobs have passed on every run. `e2e` has failed on two distinct causes, both now fixed: the disk exhaustion is gone and confirmed gone by a run (14 GB free became 46 GB, and the monitoring stack it used to die on now deploys, is proven observing, and passes TLS and the Sealed Secrets round trip), and the k6 summary export that replaced it is fixed and verified locally but not yet in CI. The README's pipeline claim stands on seven green jobs until e2e finishes one.
+The repository is on GitHub and CI has run five times. Seven of the eight jobs have passed on every run. `e2e` has failed on three distinct causes, each hidden behind the last and each now fixed: runner disk (confirmed fixed by a run), the k6 summary export (fixed, verified locally), and a silent `k3d image import` failure (fixed, not yet exercised). A theme runs through the last two: both were tools reporting success after failing, found only because the step after them broke. The README's pipeline claim stands on seven green jobs until e2e finishes one.
 
 ---
 
@@ -1666,6 +1666,36 @@ command in the runbooks is a task that exists in `mise.toml` today.
   even read access, which is a property of this machine and not of CI; the clean test isolates
   the uid.) That e2e completes end to end still needs a green run — the chaos experiments and
   the backup/restore step have never executed in CI.
+  **Run 5 — `k3d image import` reported success after failing on every node.** A regression in
+  the sense that `Deploy` had passed in runs 3 and 4; not caused by either fix. The default
+  import mode stages the image as a tarball in a volume shared with a temporary tools node,
+  and that import failed on all three nodes at once:
+
+  ```
+  ERRO failed to import images in node 'k3d-linkpulse-agent-0': ... 
+       ctr: open /k3d/images/k3d-linkpulse-images-20260912173228.tar: no such file or directory
+  INFO Successfully imported image(s)
+  INFO Successfully imported 1 image(s) into 1 cluster(s)
+  ```
+
+  k3d printed both of those, in that order, and exited 0. Nothing noticed until the Deployment
+  came up `ErrImageNeverPull` two minutes later against an `imagePullPolicy: Never`, and the
+  step that failed was `Deploy` — three steps downstream of the actual fault. This is the same
+  shape as the k6 bug in run 4 and it is worth stating as a property rather than as two
+  incidents: **the tools this pipeline drives report success after partial failure, so a step
+  that does not assert its own postcondition moves the failure downstream and disguises it.**
+  The disk assertion was written for that reason before either of these was known.
+
+  Fixed with `--mode direct`, which streams the image into each node's containerd over exec
+  and so does not involve the tools node or the shared volume — the whole failing path — plus
+  an assertion that `linkpulse:local` is actually present in `ctr -n k8s.io images ls` on every
+  node, which stays regardless of mode. Node names are read from the cluster rather than
+  written as literals. **Verified here:** the YAML parses, the step passes `bash -n`, `--mode
+  direct` is a real flag in k3d 5.9.0 (`k3d image import --help`), and the node names the
+  assertion will iterate match the container names k3d used in the run 5 log. **Not verified:**
+  the assertion against a real cluster — this host cannot run the compose flow, because SELinux
+  is enforcing and the repo is not labelled for container access.
+
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so
   a collision fails loudly at `compose up` rather than misrouting, but it is the one value in

@@ -364,7 +364,39 @@ jobs:
             -n kube-system --timeout=600s
 
       - name: Load the image into the cluster
-        run: docker compose run --rm k3d image import linkpulse:local --cluster linkpulse
+        # `--mode direct`, and then an assertion, because the default mode failed here in a
+        # way k3d did not report. It stages the image as a tarball in a volume shared with a
+        # temporary tools node; that import failed on all three nodes at once with
+        #
+        #   ctr: open /k3d/images/k3d-linkpulse-images-<ts>.tar: no such file or directory
+        #
+        # and k3d then printed "Successfully imported image(s)" and exited 0 anyway. The
+        # Deployment is the only thing that noticed, two minutes later, as ErrImageNeverPull
+        # against an imagePullPolicy of Never. Direct mode streams the image into each node's
+        # containerd over exec instead, so the shared volume and the tools node -- the whole
+        # failing path -- are not involved.
+        #
+        # The assertion stays regardless of mode. A silent import failure costs the rest of
+        # this job, and `ctr images ls` on each node is the only evidence that actually
+        # settles it; node names come from the cluster rather than a literal, so this does not
+        # drift if cluster.yaml changes shape.
+        run: |
+          docker compose run --rm k3d image import linkpulse:local --cluster linkpulse --mode direct
+
+          nodes=$(docker compose run --rm -T kubectl get nodes -o name | sed 's|^node/||' | tr -d '\r')
+          test -n "$nodes" || { echo "::error::no nodes returned"; exit 1; }
+          missing=0
+          for node in $nodes; do
+            if docker exec "$node" ctr -n k8s.io images ls -q | grep -q 'linkpulse:local'; then
+              echo "ok: linkpulse:local present on $node"
+            else
+              echo "::error::linkpulse:local is NOT present on $node -- the import reported" \
+                   "success but the node cannot see it; the Deployment would fail with" \
+                   "ErrImageNeverPull."
+              missing=1
+            fi
+          done
+          exit $missing
 
       - name: Platform -- cert-manager and Sealed Secrets
         # The same sequence as `mise run platform-apply`, with the same two non-obvious
