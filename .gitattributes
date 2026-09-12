@@ -1,0 +1,13 @@
+# Every text file is LF in the working tree, on every host, regardless of core.autocrlf.
+#
+# This project runs its scripts inside Linux containers from a bind mount of the working
+# tree. On a Windows clone with autocrlf=true, git would check scripts/tf-check.sh out with
+# CRLF endings, and busybox sh would then fail on the very first line with an error about
+# an illegal option -- the "\r" is invisible in every editor and the message names nothing
+# that exists. The same corruption would reach the Dockerfile, every YAML the cluster
+# applies, and the Terraform the provider parses. One rule here removes the whole class.
+* text=auto eol=lf
+
+# Binary evidence artifacts must never be touched.
+*.png binary
+*.cast binary

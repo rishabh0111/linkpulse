@@ -1,0 +1,52 @@
+# Pinned toolchain, read by mise (and asdf-compatible).
+#
+# The claim this file backs: Docker and mise are the ONLY host prerequisites. Everything
+# below is fetched by `scripts/bootstrap.sh` through mise, so nothing depends on the host
+# package manager and nothing is installed system-wide. Anything not listed here runs in a
+# container instead.
+#
+# Versions are exact, never ranges. A range would make "reproducible on every machine" a
+# hope rather than a property.
+
+# Go 1.27 is the toolchain used to BUILD. Note app/graphql-api/go.mod declares `go 1.25.0`
+# — that is the minimum language version the module needs (forced by
+# prometheus/client_golang, which requires >= 1.25), not the version we build with. Two
+# different numbers on purpose: the module says what it needs, this file says what we use.
+golang 1.27.1
+
+# Terraform 1.16 is required, not merely current: the S3 backend's `use_lockfile` (state
+# locking without a DynamoDB table) needs >= 1.10, and modules/s3-state explains why that
+# matters here.
+terraform 1.16.2
+
+# Kubernetes CLI, matched to the cluster rather than kept current.
+#
+# This was 1.37.0, which was wrong: kubectl supports one minor version of skew in either
+# direction, and both the k3d cluster (k8s/k3d/cluster.yaml) and the EKS target
+# (infra/terraform/modules/eks) run 1.34 — three minors away, outside the supported range.
+# The comment that used to sit here cited the one-minor rule while pinning a version that
+# broke it. Matching exactly is also what lets docker-compose.yml's `kubectl` tool
+# container use the same number.
+kubectl 1.34.5
+
+# The k3s build the local cluster runs, kept here so the version appears in the one file
+# that answers "what is this project pinned to". k3d does not read it — k8s/k3d/cluster.yaml
+# is what actually selects the image — so the two must be changed together, and the config
+# file says so.
+k3s 1.34.5
+
+helm 4.3.0
+k3d 5.9.0
+argocd 3.5.2
+
+# k6 for load generation, and jq because the chaos assertion scripts parse Prometheus and
+# Alertmanager JSON in shell. Python handles the heavier scripts (scripts/*.py); jq is for
+# the ones that have to stay a shell one-liner inside an assertion.
+k6 2.2.0
+jq 1.8.2
+
+# Trivy runs in CI as a container, but pinning it here too means the same version can be
+# run locally before pushing — a scan that only fails in CI is a scan that wastes a push.
+trivy 0.74.0
+
+awscli 2.36.42

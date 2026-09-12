@@ -1,0 +1,100 @@
+# ---------------------------------------------------------------------------------------
+# Terraform
+# ---------------------------------------------------------------------------------------
+
+# State. Never committed: it contains every attribute of every resource, secrets included.
+# The real state lives in S3 (envs/aws, envs/aws-burst); the two environments that keep
+# local state keep it out of git and accept that it is disposable.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+.terraform/
+crash.log
+crash.*.log
+
+# Variable files hold an email address and an account-derived bucket name. The .example
+# files are committed; the real ones are not.
+*.tfvars
+!*.tfvars.example
+backend.hcl
+
+# The lock file IS committed, deliberately — it is what pins provider versions to exactly
+# what was tested, and leaving it out would make "reproducible" a claim rather than a
+# property.
+!.terraform.lock.hcl
+
+# ---------------------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------------------
+
+# Compiled binaries. The deployable artifact is the container image, never a checked-in
+# binary.
+/app/graphql-api/server
+/app/graphql-api/bin/
+
+# ---------------------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------------------
+
+# Anything holding a real credential. SOPS-encrypted files (*.enc.yaml) and Sealed Secrets
+# are safe to commit by design; their plaintext counterparts are not.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!**/*.enc.yaml
+secrets.yaml
+kubeconfig
+kubeconfig.*
+
+# The kubeconfig `mise run cluster-up` writes. It holds the cluster CA and a client
+# certificate that is cluster-admin — a real credential, even though the cluster it opens
+# is disposable and listens only on loopback. The directory is tracked (via .gitkeep) but
+# the file never is: k3d writes into it, and a bind mount cannot create a host directory
+# that does not exist.
+/.kube/*
+!/.kube/.gitkeep
+
+# certs/ holds two exports from the cluster, neither of which belongs in git:
+#   ca.crt                    the cluster CA's PUBLIC certificate (mise run tls-ca). Harmless
+#                             to publish, but per-cluster -- a committed copy would be stale
+#                             the moment anyone else ran `dev`.
+#   sealed-secrets-key.yaml   the Sealed Secrets PRIVATE key (mise run seal-export). The one
+#                             file that decrypts every SealedSecret in the aws overlays. Keep
+#                             it somewhere safer than a laptop; never commit it.
+# The public sealing certificate is committed at platform/sealed-secrets/sealing-cert.crt.
+/certs/
+
+# Table exports from scripts/backup.py: real data from a real table, and potentially
+# large. backups/backup-check.jsonl.gz is LocalStack fixture data and equally not worth
+# committing.
+/backups/
+
+# ---------------------------------------------------------------------------------------
+# Evidence
+# ---------------------------------------------------------------------------------------
+
+# docs/evidence/ IS committed — the rendered panels, the timelines and the k6 export are
+# the deliverable. Only the scratch of an in-progress run is ignored: the .rev files are
+# how experiment2-git.sh hands a commit hash to experiment2.py between phases.
+/docs/evidence/**/*.tmp
+/docs/evidence/.scratch/
+/docs/evidence/chaos-*/*.rev
+
+# k6 raw output can be hundreds of MB. The committed artifact is the --summary-export
+# JSON, not the full sample stream.
+/load-testing/k6/output/
+*.k6-raw.json
+
+# ---------------------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------------------
+
+__pycache__/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
