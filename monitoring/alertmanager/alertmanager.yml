@@ -1,0 +1,58 @@
+# Alertmanager routing. One receiver -- Discord -- because there is one operator.
+#
+# The webhook URL is NOT in this file. It is read at runtime from a file mounted from the
+# `alertmanager-discord` Secret, so this ConfigMap can be committed and the URL cannot. In
+# the local overlay that Secret holds a placeholder URL: sends fail, are logged, and
+# nothing else changes -- which is fine, because the chaos assertions read fired alerts
+# from Alertmanager's own API (/api/v2/alerts), not from Discord. Discord is for the human;
+# the API is for the proof.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: discord
+  # Group by alertname and the experiment label, so a single experiment's alerts arrive as
+  # one message rather than a burst -- and so two experiments running back to back do not
+  # get folded into each other.
+  group_by: [alertname, experiment]
+  # Short waits. Production defaults (30s / 5m / 4h) exist to batch noise across a large
+  # estate; here every alert is an event someone is watching for, and the timeline in the
+  # postmortem is only as precise as this delay allows.
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+  routes:
+    # Warnings still go to Discord, but repeat less often. The critical alerts are the
+    # ones that need to be un-missable.
+    - matchers:
+        - severity = warning
+      repeat_interval: 4h
+
+receivers:
+  - name: discord
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/secrets/webhook-url
+        send_resolved: true
+        title: '{{ .CommonLabels.alertname }} [{{ .Status | toUpper }}]'
+        message: |-
+          {{ range .Alerts -}}
+          **{{ .Labels.severity | toUpper }}** {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ if .Labels.experiment }}experiment {{ .Labels.experiment }} · {{ end }}{{ .Annotations.runbook }}
+          {{ end }}
+
+inhibit_rules:
+  # A full outage (no ready pods) makes the per-pod not-ready alerts redundant. Suppress
+  # them so the Discord message during experiment 3 is one line, not one per replica.
+  - source_matchers:
+      - alertname = LinkpulseNoReadyPods
+    target_matchers:
+      - alertname = LinkpulseNotReady
+    equal: [experiment]
+  # CrashLoopBackOff implies the earlier OOMKilled and memory warnings.
+  - source_matchers:
+      - alertname = LinkpulseCrashLooping
+    target_matchers:
+      - alertname =~ "LinkpulseOOMKilled|LinkpulseMemoryNearLimit"
+    equal: [namespace, pod]

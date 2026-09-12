@@ -1,0 +1,14 @@
+# Exists so Prometheus can discover the exporters through the endpoints role; nothing
+# calls the ClusterIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: node-exporter
+  ports:
+    - name: http
+      port: 9100
+      targetPort: http

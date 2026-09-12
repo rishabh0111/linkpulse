@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: alertmanager-config
+    files:
+      - alertmanager.yml
+# The Secret is NOT generated here. Each overlay provides `alertmanager-discord`: local
+# with a placeholder, aws as a Sealed Secret. A base that generated it would have to pick
+# one, and the wrong pick is the committed one.

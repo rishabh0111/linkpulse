@@ -1,0 +1,31 @@
+# The monitoring stack, assembled from one directory per component. Plain manifests and
+# kustomize throughout -- no Prometheus Operator, no kube-prometheus-stack chart.
+#
+# That is a deliberate trade. The operator brings ServiceMonitor and PrometheusRule CRDs,
+# which are the idiomatic way to do this and what most job descriptions mean by
+# "Prometheus on Kubernetes". It also brings ~40 CRDs, a chart with a thousand values, and
+# an install that has to succeed before the application's manifests can even be applied.
+# For one application on a cluster that is rebuilt weekly, the scrape config is 100 lines
+# I can read, and the alert rules are a file the chaos assertions cite by name. If a
+# second application ever needs scraping, the operator is the upgrade; the annotations
+# on the pod template are already the shape it would discover.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+resources:
+  - namespace.yaml
+  - ../prometheus
+  - ../alertmanager
+  - ../grafana
+  - ../loki
+  - ../alloy
+  - ../kube-state-metrics
+  - ../node-exporter
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: linkpulse
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false

@@ -1,0 +1,27 @@
+# Local: the base plus the two Secrets it deliberately does not contain.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+resources:
+  - ../../base
+
+secretGenerator:
+  # A placeholder, and it is safe to be one: Alertmanager will POST to it, get a 404 from
+  # Discord, log the failure and carry on. The chaos assertions read fired alerts from
+  # Alertmanager's own API, not from Discord, so a dead webhook costs the human a message
+  # and the proof nothing. To see alerts in Discord locally, replace this with a real
+  # URL through `mise run alerts-discord` -- which writes the Secret directly and does
+  # not touch git.
+  - name: alertmanager-discord
+    literals:
+      - webhook-url=https://discord.com/api/webhooks/0/placeholder
+  # admin / admin. Anonymous viewers can already see every dashboard; this is for editing,
+  # on a cluster that listens only on loopback.
+  - name: grafana-admin
+    literals:
+      - password=admin
+
+patches:
+  - path: patch-ingress-tls.yaml

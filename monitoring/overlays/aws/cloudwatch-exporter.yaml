@@ -1,0 +1,123 @@
+# CloudWatch -> Prometheus, for the DynamoDB metrics only the table itself can report.
+#
+# The application already exports linkpulse_dynamodb_throttles_total -- its own count of
+# ProvisionedThroughputExceededException. This exporter adds the table's view of the
+# same event: ConsumedWriteCapacityUnits against the provisioned 25, ThrottledRequests,
+# WriteThrottleEvents. Experiment 1 asserts on both, because they prove different things:
+# the application metric proves the code saw the throttle; the CloudWatch metric proves
+# the table did. A hot partition shows up here as WriteThrottleEvents while
+# ConsumedWriteCapacityUnits sits well under 25 -- the single most informative graph in
+# the project, and the one that cannot be produced against LocalStack, which is why this
+# file is in the aws overlay only.
+#
+# YACE (yet-another-cloudwatch-exporter) rather than the older cloudwatch_exporter: it
+# discovers resources by tag through the Resource Groups Tagging API rather than needing
+# every dimension listed, and it batches GetMetricData, which matters against CloudWatch's
+# free tier (1M API requests/month; each GetMetricData call with N metrics counts as one).
+#
+# Credentials: IRSA, through the annotated ServiceAccount below. The role is in
+# infra/terraform/envs/aws-burst/cloudwatch.tf and grants cloudwatch:GetMetricData,
+# cloudwatch:ListMetrics and tag:GetResources -- nothing on DynamoDB itself.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudwatch-exporter
+  annotations:
+    # Placeholder account ID, substituted by the burst runbook alongside the app's.
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/linkpulse-burst-cloudwatch-exporter
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudwatch-exporter-config
+data:
+  config.yml: |
+    apiVersion: v1alpha1
+    discovery:
+      jobs:
+        - type: AWS/DynamoDB
+          regions: [ap-south-1]
+          # Only the LinkPulse table, found by the tag Terraform applies.
+          searchTags:
+            - key: Project
+              value: linkpulse
+          # 60s period, 60s length: one datapoint per minute, which is DynamoDB's own
+          # resolution for these metrics. Shorter would return the same points twice.
+          period: 60
+          length: 60
+          delay: 60
+          metrics:
+            - name: ConsumedReadCapacityUnits
+              statistics: [Sum]
+            - name: ConsumedWriteCapacityUnits
+              statistics: [Sum]
+            - name: ProvisionedReadCapacityUnits
+              statistics: [Average]
+            - name: ProvisionedWriteCapacityUnits
+              statistics: [Average]
+            - name: ThrottledRequests
+              statistics: [Sum]
+            - name: ReadThrottleEvents
+              statistics: [Sum]
+            - name: WriteThrottleEvents
+              statistics: [Sum]
+            - name: SuccessfulRequestLatency
+              statistics: [Average, p99]
+            - name: SystemErrors
+              statistics: [Sum]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudwatch-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudwatch-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudwatch-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: cloudwatch-exporter
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: yace
+          image: quay.io/prometheuscommunity/yet-another-cloudwatch-exporter:v0.63.0
+          args:
+            - --config.file=/config/config.yml
+            - --listen-address=:5000
+            # Scrape CloudWatch once a minute, decoupled from Prometheus's 15s scrape of
+            # this exporter, so the API call count is fixed regardless of scrape interval.
+            - --scraping-interval=60
+          ports:
+            - name: http
+              containerPort: 5000
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: cloudwatch-exporter-config

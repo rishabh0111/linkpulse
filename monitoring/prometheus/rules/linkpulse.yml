@@ -1,0 +1,248 @@
+# Alert rules for the application. One group per chaos experiment, so that the rule an
+# experiment asserts on is findable by number, plus a general group for the things that
+# are simply wrong regardless of experiment.
+#
+# Thresholds here are STARTING points. Plan section 4.12 is explicit that the committed
+# assertions come from observing each failure's real signature, not from guessing -- the
+# phase-9 exploratory runs are what set the final numbers, and this file's history will
+# show them being adjusted. What is fixed now is the *shape*: which series, which labels,
+# which `for` duration, and the annotation text that lands in Discord.
+#
+# Every rule carries `runbook` pointing at an anchor in docs/runbook.md, which was written
+# to match these alerts rather than the other way round.
+#
+# Two rules in this file were dead for two phases -- syntactically fine, evaluating
+# "healthy", incapable of ever returning a row -- because they joined series from two
+# exporters with a bare operator (docs/postmortem.md). The rule for any future rule that
+# combines vectors: write the `on (...)` clause first, then query the expression against
+# the live cluster with its comparison stripped and require at least one row before
+# committing. "Loaded" is not "can fire"; the chaos experiments are what test the latter.
+
+groups:
+  # ---------------------------------------------------------------------------------------
+  - name: linkpulse.general
+    rules:
+      - alert: LinkpulseHighErrorRate
+        # 5xx as a share of all requests. 4xx is deliberately excluded: bad input from a
+        # scanner is not an outage, and the whole reason phase 2 split parse errors from
+        # resolver errors was so this division would be honest.
+        #
+        # The probe routes are excluded too, and that was learned rather than designed.
+        # During a dependency outage /readyz answers 503 by design -- that is how the pod
+        # leaves the Service -- and with no user traffic those probes are 100% of requests,
+        # so this alert fired on a cluster whose only "errors" were its own health checks
+        # working correctly. LinkpulseNotReady is the alert for that condition; this one
+        # is for requests a user sent.
+        expr: |
+          sum(rate(linkpulse_http_requests_total{code=~"5..", route!~"healthz|readyz"}[2m]))
+            /
+          sum(rate(linkpulse_http_requests_total{route!~"healthz|readyz"}[2m]))
+            > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LinkPulse 5xx rate above 5%"
+          description: "{{ $value | humanizePercentage }} of requests are failing."
+          runbook: docs/runbook.md#high-error-rate
+
+      - alert: LinkpulseRedirectLatencyHigh
+        # p99 on the redirect path only. The GraphQL path is allowed to be slower; the
+        # redirect is the product.
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(linkpulse_http_request_duration_seconds_bucket{route="redirect"}[2m])))
+            > 0.25
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redirect p99 above 250ms"
+          description: "p99 redirect latency is {{ $value | humanizeDuration }}."
+          runbook: docs/runbook.md#redirect-latency
+
+      - alert: LinkpulseTargetDown
+        expr: up{job="kubernetes-pods", app="linkpulse"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A LinkPulse pod is not answering /metrics"
+          description: "{{ $labels.pod }} on {{ $labels.node }} has been unscrapeable for 2m."
+          runbook: docs/runbook.md#target-down
+
+  # ---------------------------------------------------------------------------------------
+  - name: linkpulse.experiment-1.throttling
+    rules:
+      - alert: LinkpulseClicksDropped
+        # THE experiment-1 alert. Redirects stay fast under DynamoDB throttling because
+        # click writes are asynchronous, so the user-visible symptom of a hot partition is
+        # lost analytics, not latency -- an alert on latency alone would sleep through it.
+        # The application seeds every `reason` at zero on startup precisely so this
+        # expression returns 0 rather than "no data" before the first drop.
+        expr: sum by (reason) (rate(linkpulse_clicks_dropped_total[1m])) > 0
+        for: 30s
+        labels:
+          severity: critical
+          experiment: "1"
+        annotations:
+          summary: "Clicks are being dropped ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} clicks/s discarded, reason={{ $labels.reason }}. If reason=throttled, the click aggregate is on a hot partition: check linkpulse_click_shards."
+          runbook: docs/runbook.md#clicks-dropped
+
+      - alert: LinkpulseDynamoThrottled
+        expr: sum by (op) (rate(linkpulse_dynamodb_throttles_total[1m])) > 0
+        for: 30s
+        labels:
+          severity: warning
+          experiment: "1"
+        annotations:
+          summary: "DynamoDB is throttling {{ $labels.op }}"
+          description: "{{ $value | humanize }} throttled {{ $labels.op }} calls/s. Provisioned capacity is 20 WCU on the table; per-partition ceiling is 1000 WCU -- if the table is not at 20 the problem is a single hot key."
+          runbook: docs/runbook.md#dynamodb-throttled
+
+  # ---------------------------------------------------------------------------------------
+  - name: linkpulse.experiment-2.bad-deploy
+    rules:
+      - alert: LinkpulseRolloutStalled
+        # The signature of the bad image: Progressing=False with reason
+        # ProgressDeadlineExceeded, which the Deployment sets after
+        # progressDeadlineSeconds (120s) without progress. Because maxUnavailable is 0
+        # the old pods are still serving, so nothing user-facing fires -- this is the only
+        # alert that says the deploy is stuck, which is exactly why it exists.
+        expr: |
+          kube_deployment_status_condition{namespace="linkpulse", deployment="linkpulse",
+                                           condition="Progressing", status="false"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          experiment: "2"
+        annotations:
+          summary: "Deployment linkpulse rollout has stalled"
+          description: "The new ReplicaSet is not becoming ready and the progress deadline has passed. Old pods are still serving. Roll back by reverting the commit."
+          runbook: docs/runbook.md#rollout-stalled
+
+  # ---------------------------------------------------------------------------------------
+  - name: linkpulse.experiment-3.dependency-outage
+    rules:
+      - alert: LinkpulseNotReady
+        # The application's own view (linkpulse_ready) and Kubernetes' view
+        # (kube_pod_status_ready) of the same fact. Both are alerted on because the gap
+        # between them during a dependency outage is part of what the experiment shows:
+        # the process says "not ready" instantly, the kubelet agrees after failureThreshold
+        # × periodSeconds, and the endpoint is removed after that.
+        expr: min by (pod) (linkpulse_ready) == 0
+        for: 1m
+        labels:
+          severity: critical
+          experiment: "3"
+        annotations:
+          summary: "LinkPulse pod {{ $labels.pod }} reports not ready"
+          description: "/readyz has been failing for 1m. Liveness still passes, so the pod is up but out of the Service. Most likely the store is unreachable: check DynamoDB access and IAM."
+          runbook: docs/runbook.md#not-ready
+
+      - alert: LinkpulseNoReadyPods
+        expr: |
+          sum(kube_pod_status_ready{namespace="linkpulse", condition="true"}
+              * on (pod) group_left kube_pod_labels{label_app_kubernetes_io_name="linkpulse"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+          experiment: "3"
+        annotations:
+          summary: "No ready LinkPulse pods -- the Service has no endpoints"
+          description: "Every replica is failing readiness. This is a full outage."
+          runbook: docs/runbook.md#not-ready
+
+  # ---------------------------------------------------------------------------------------
+  - name: linkpulse.experiment-4.resource-exhaustion
+    rules:
+      - alert: LinkpulseCrashLooping
+        expr: |
+          kube_pod_container_status_waiting_reason{namespace="linkpulse", reason="CrashLoopBackOff"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          experiment: "4"
+        annotations:
+          summary: "{{ $labels.pod }} is in CrashLoopBackOff"
+          description: "Container {{ $labels.container }} keeps exiting. Check the last termination reason -- OOMKilled means the memory limit was hit."
+          runbook: docs/runbook.md#crashloop
+
+      - alert: LinkpulseOOMKilled
+        # Restarts whose last termination reason was OOMKilled. This fires on the *first*
+        # kill, before the backoff has grown long enough to count as CrashLoopBackOff,
+        # which is how the timeline in the write-up gets its earliest timestamp.
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="linkpulse"}[5m]) > 0
+            and on (namespace, pod, container)
+          kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+        labels:
+          severity: warning
+          experiment: "4"
+        annotations:
+          summary: "{{ $labels.pod }} was OOMKilled"
+          description: "The container exceeded its memory limit and was killed. The limit is 128Mi; see the memory panel for the climb."
+          runbook: docs/runbook.md#oomkilled
+
+      - alert: LinkpulseMemoryNearLimit
+        # The two sides come from different exporters with different label sets --
+        # cAdvisor stamps id, image and instance on the working set; kube-state-metrics
+        # stamps node and uid on the limit -- so a bare division matches nothing and
+        # returns no series, ever. As first committed, that is exactly what this rule
+        # did: it loaded, it evaluated "healthy", and it could not fire. Found by the
+        # phase-9 exploratory pass for experiment 4, before the experiment was run: the
+        # harness queried the expression and got zero rows on a cluster where both
+        # inputs had two. `on (...) group_left` names the join.
+        expr: |
+          container_memory_working_set_bytes{namespace="linkpulse", container="api"}
+            / on (namespace, pod, container) group_left
+          kube_pod_container_resource_limits{namespace="linkpulse", container="api", resource="memory"}
+            > 0.85
+        for: 1m
+        labels:
+          severity: warning
+          experiment: "4"
+        annotations:
+          summary: "{{ $labels.pod }} memory above 85% of its limit"
+          description: "{{ $value | humanizePercentage }} of the limit in use. An OOMKill follows if this keeps climbing."
+          runbook: docs/runbook.md#oomkilled
+
+  # ---------------------------------------------------------------------------------------
+  - name: linkpulse.experiment-5.node-loss
+    rules:
+      - alert: KubeNodeNotReady
+        expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          experiment: "5"
+        annotations:
+          summary: "Node {{ $labels.node }} is NotReady"
+          description: "Pods on it will be rescheduled after the eviction timeout. Watch that the PodDisruptionBudget keeps at least one LinkPulse replica serving throughout."
+          runbook: docs/runbook.md#node-lost
+
+      - alert: LinkpulseBelowMinReplicas
+        # Fewer ready replicas than the HPA floor. During node loss this is the window
+        # between the node going NotReady and the replacement pod becoming ready
+        # elsewhere -- the number the experiment measures.
+        #
+        # `on (namespace)`, because the two sides carry different identifying labels
+        # (`deployment` on one, `horizontalpodautoscaler` on the other) and a bare `<`
+        # between vectors only compares series whose labels match exactly. As first
+        # committed this rule had no `on` and therefore compared nothing: the phase-9
+        # run of experiment 5 held the deployment at one ready replica for five minutes,
+        # the comparison was true the whole time, and the alert never existed. The same
+        # mistake as LinkpulseMemoryNearLimit's, found the same way.
+        expr: |
+          kube_deployment_status_replicas_ready{namespace="linkpulse", deployment="linkpulse"}
+            < on (namespace)
+          kube_horizontalpodautoscaler_spec_min_replicas{namespace="linkpulse", horizontalpodautoscaler="linkpulse"}
+        for: 30s
+        labels:
+          severity: warning
+          experiment: "5"
+        annotations:
+          summary: "LinkPulse has fewer ready replicas than its HPA minimum"
+          description: "{{ $value }} ready. Capacity is reduced but the service is up as long as this is not zero."
+          runbook: docs/runbook.md#node-lost

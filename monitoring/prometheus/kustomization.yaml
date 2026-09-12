@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+# Both generated with a content hash, so editing a scrape job or a rule rolls Prometheus
+# and the change takes effect -- the same argument as the application's ConfigMap. A
+# rules edit that silently did nothing until someone restarted Prometheus is exactly
+# the kind of thing that makes an alert "not fire" during an experiment.
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - prometheus.yml
+  - name: prometheus-rules
+    files:
+      - rules/linkpulse.yml

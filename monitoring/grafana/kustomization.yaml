@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - renderer.yaml
+  - service.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: grafana-provisioning-datasources
+    files:
+      - datasources.yaml
+  - name: grafana-provisioning-dashboards
+    files:
+      - dashboards.yaml
+  # The dashboards, as JSON, in git. Grafana loads them from disk at start and re-reads
+  # every 30s; because the ConfigMap name carries a content hash, a committed change also
+  # rolls the pod, so the two paths agree. Editing in the UI is allowed (allowUiUpdates)
+  # for exploration, but the UI copy is overwritten by the file on the next reload --
+  # which is the correct direction: the JSON here is the source, the UI is a view.
+  - name: grafana-dashboards
+    files:
+      - dashboards/linkpulse-overview.json
+      - dashboards/linkpulse-kubernetes.json
+      - dashboards/linkpulse-logs.json

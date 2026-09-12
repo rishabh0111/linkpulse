@@ -1,0 +1,47 @@
+# Loki, single binary, filesystem storage. This is the smallest configuration that is a
+# real Loki rather than a toy: one process runs every component, the index and chunks
+# go to local disk, and there is no object store. It is what "centralised logs" means at
+# this scale -- one place to query every pod's output by label -- without an S3 bucket
+# to provision for a cluster that gets deleted nightly.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: warn
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Two days, matching Prometheus. The logs that matter are copied into docs/evidence
+  # per experiment; Loki is the working set, not the archive.
+  retention_period: 48h
+  # Structured metadata carries the Kubernetes labels Alloy attaches; leave it on.
+  allow_structured_metadata: true
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+ruler:
+  enable_api: false

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/part-of: linkpulse
+    # `privileged`, where the application namespace is `restricted` -- and the difference
+    # is exactly two workloads. node-exporter needs hostNetwork and hostPID because the
+    # thing it measures is the host; Alloy needs a hostPath mount of /var/log/pods and
+    # root to read the files under it. Neither can be expressed under `baseline`, let
+    # alone `restricted`. Everything else here (Prometheus, Grafana, Loki, Alertmanager,
+    # kube-state-metrics) runs non-root with all capabilities dropped and would pass
+    # `restricted`; the profile is the namespace's, so it is set by its most demanding
+    # member, and this label is where that is admitted.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline

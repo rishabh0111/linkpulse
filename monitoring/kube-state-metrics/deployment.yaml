@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-state-metrics
+    spec:
+      serviceAccountName: kube-state-metrics
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kube-state-metrics
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.17.0
+          args:
+            # Only the resources the ClusterRole grants; anything else would be a
+            # permission error logged every resync.
+            - --resources=nodes,pods,namespaces,services,endpointslices,configmaps,persistentvolumeclaims,deployments,replicasets,daemonsets,statefulsets,horizontalpodautoscalers,poddisruptionbudgets,ingresses
+            # Pod labels as a metric, so kube_pod_labels can join app name onto readiness
+            # in the LinkpulseNoReadyPods rule.
+            - --metric-labels-allowlist=pods=[app.kubernetes.io/name]
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: telemetry
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: telemetry
+            periodSeconds: 10
+          # /livez is served on the metrics port, /readyz on the telemetry port. Getting the
+          # first one wrong (probing :8081/livez) returned 404, so the kubelet killed a
+          # perfectly healthy exporter every 45 seconds -- and `rollout status` reported
+          # success anyway, because readiness had passed before the first liveness
+          # failure. The check script caught it only because it ran again later. The
+          # rules for experiments 2 through 5 all read this exporter; with it crash-
+          # looping, none of them can fire.
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

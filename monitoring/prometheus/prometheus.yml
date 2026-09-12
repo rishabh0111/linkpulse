@@ -1,0 +1,127 @@
+# Prometheus scrape configuration. Rendered into a ConfigMap by kustomize; the rules it
+# loads are in rules/ beside it.
+#
+# Discovery is annotation-driven for the application (prometheus.io/scrape on the pod
+# template) and label-driven for the cluster components, so adding a scrape target is a
+# manifest change rather than an edit here. There is no Prometheus Operator and no
+# ServiceMonitor CRD: the trade is a slightly longer file against not needing a CRD to
+# exist before the application can be applied (see the note on the Deployment's
+# annotations in k8s/manifests/base/deployment.yaml).
+
+global:
+  # 15s is deliberate. The chaos assertions query rate() over 1m windows, and rate() needs
+  # at least two samples inside the window to return anything -- at 30s that is exactly
+  # two and a single dropped scrape empties the window. 15s gives four.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: linkpulse
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # ---- the application ---------------------------------------------------------------
+  # Any pod annotated prometheus.io/scrape=true, in any namespace. The route label
+  # cardinality is bounded by the application (it labels by route name, not path), so
+  # scraping every replica is cheap.
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      # Only scrape pods that are actually running -- a Terminating pod still has an IP
+      # for its grace period, and scraping it produces a flurry of "target down" during
+      # every rollout that the TargetDown alert would otherwise fire on.
+      - source_labels: [__meta_kubernetes_pod_phase]
+        action: keep
+        regex: Running
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        target_label: app
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+
+  # ---- cluster state -----------------------------------------------------------------
+  # kube-state-metrics is what turns Kubernetes objects into series: deployment
+  # conditions (experiment 2's stalled rollout), container restarts and waiting reasons
+  # (experiment 4's CrashLoopBackOff), pod readiness (experiment 3), node readiness
+  # (experiment 5). Every experiment assertion that is "about Kubernetes" reads this job.
+  - job_name: kube-state-metrics
+    static_configs:
+      - targets: ["kube-state-metrics:8080"]
+
+  # ---- nodes -------------------------------------------------------------------------
+  - job_name: node-exporter
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [monitoring]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: node-exporter
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+
+  # cAdvisor, through the kubelet, through the API server proxy. This is where container
+  # CPU and memory come from -- the memory panel that shows experiment 4 climbing to the
+  # limit reads container_memory_working_set_bytes from here.
+  - job_name: kubernetes-cadvisor
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    metric_relabel_configs:
+      # cAdvisor emits a series per cgroup including every pause container and every
+      # system slice. Keeping only rows with a container name cuts the series count by
+      # about two thirds and loses nothing a dashboard here reads.
+      - source_labels: [container]
+        regex: (POD|)
+        action: drop
+
+  # ---- the monitoring stack itself ----------------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]

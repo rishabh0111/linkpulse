@@ -1,0 +1,40 @@
+# TLS for the three monitoring ingresses, from the cluster's own CA. Local only, for the
+# reason k8s/manifests/overlays/local/patch-ingress-tls.yaml gives in full: on k3d the
+# certificate is cert-manager's and Traefik serves it; on EKS the ALB terminates TLS and
+# a tls block here would only mint Secrets nothing reads.
+#
+# One host per certificate rather than one wildcard certificate for *.localtest.me,
+# because each Ingress is its own object and a shared Secret across three of them is a
+# shared point of confusion when one is renewed and the others are not.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  annotations:
+    cert-manager.io/cluster-issuer: linkpulse-ca
+spec:
+  tls:
+    - hosts: [grafana.localtest.me]
+      secretName: grafana-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus
+  annotations:
+    cert-manager.io/cluster-issuer: linkpulse-ca
+spec:
+  tls:
+    - hosts: [prometheus.localtest.me]
+      secretName: prometheus-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alertmanager
+  annotations:
+    cert-manager.io/cluster-issuer: linkpulse-ca
+spec:
+  tls:
+    - hosts: [alertmanager.localtest.me]
+      secretName: alertmanager-tls
