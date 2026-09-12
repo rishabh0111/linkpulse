@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LinkPulse</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafaf8; --mut:#6b6b6b; --line:#e0dfdb; --acc:#2f6f4e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e8e6e1; --bg:#17181a; --mut:#9a9893; --line:#2e3033; --acc:#7fc0a0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:32px 16px; font:14px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;
+         color:var(--fg); background:var(--bg); }
+  main { max-width:820px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; letter-spacing:-0.01em; }
+  p.sub { color:var(--mut); margin:0 0 28px; }
+  form { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:24px; }
+  input, button { font:inherit; padding:9px 12px; border:1px solid var(--line); border-radius:6px;
+                  background:var(--bg); color:var(--fg); }
+  input { flex:1 1 320px; min-width:0; }
+  button { background:var(--acc); color:#fff; border-color:transparent; cursor:pointer; font-weight:600; }
+  button:disabled { opacity:.55; cursor:default; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .big { font-size:26px; font-weight:650; }
+  .mut { color:var(--mut); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:500; }
+  .bars { display:flex; gap:4px; align-items:flex-end; height:60px; margin-top:12px; }
+  .bar { flex:1; background:var(--acc); border-radius:2px 2px 0 0; min-height:2px; opacity:.85; }
+  .err { color:#b3261e; }
+  .wrap { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>LinkPulse</h1>
+  <p class="sub">GraphQL link shortener with sharded click analytics. The feed below
+    <strong>polls</strong> <code>recentClicks</code> — there is no subscription, by design.</p>
+
+  <form id="f">
+    <input id="url" type="url" placeholder="https://example.com/a/long/url" required>
+    <button type="submit">Shorten</button>
+  </form>
+
+  <div id="out"></div>
+</main>
+
+<script>
+const POLL_MS = 3000;
+let current = null, timer = null;
+
+async function gql(query, variables) {
+  const res = await fetch('/graphql', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query, variables })
+  });
+  const body = await res.json();
+  if (body.errors && body.errors.length) throw new Error(body.errors[0].message);
+  return body.data;
+}
+
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  try {
+    const d = await gql(
+      'mutation($u:String!){ shortenUrl(longUrl:$u){ code shortUrl longUrl } }',
+      { u: document.getElementById('url').value }
+    );
+    current = d.shortenUrl;
+    render();
+    if (timer) clearInterval(timer);
+    timer = setInterval(refresh, POLL_MS);
+    refresh();
+  } catch (err) {
+    document.getElementById('out').innerHTML =
+      '<div class="card err">' + escapeHtml(err.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function refresh() {
+  if (!current) return;
+  try {
+    const d = await gql(
+      'query($c:String!){ link(code:$c){ totalClicks clicksByDay{ day count } ' +
+      'recentClicks(limit:15){ at country uaClass referrer } } }',
+      { c: current.code }
+    );
+    if (d.link) render(d.link);
+  } catch (err) {
+    /* A failed poll is expected during the chaos experiments; keep the last good
+       render on screen rather than blanking the page. */
+  }
+}
+
+function render(stats) {
+  const days = (stats && stats.clicksByDay) || [];
+  const max = Math.max(1, ...days.map(d => d.count));
+  document.getElementById('out').innerHTML = `
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="mut">short url</div>
+          <div class="mono"><a href="${escapeHtml(current.shortUrl)}">${escapeHtml(current.shortUrl)}</a></div>
+        </div>
+        <div style="text-align:right">
+          <div class="mut">total clicks</div>
+          <div class="big">${stats ? stats.totalClicks : 0}</div>
+        </div>
+      </div>
+      <div class="bars">${days.map(d =>
+        `<div class="bar" style="height:${Math.round(d.count / max * 100)}%" title="${d.day}: ${d.count}"></div>`
+      ).join('')}</div>
+      <div class="mut" style="font-size:12px;margin-top:6px">
+        ${days.length ? days[0].day + ' → ' + days[days.length - 1].day : 'no clicks yet'}
+      </div>
+    </div>
+    <div class="card wrap">
+      <div class="mut" style="margin-bottom:8px">recent clicks · polling every ${POLL_MS / 1000}s</div>
+      <table>
+        <thead><tr><th>when</th><th>class</th><th>country</th><th>referrer</th></tr></thead>
+        <tbody>${((stats && stats.recentClicks) || []).map(c => `
+          <tr><td class="mono">${escapeHtml(c.at)}</td><td>${escapeHtml(c.uaClass || '')}</td>
+          <td>${escapeHtml(c.country || '')}</td><td>${escapeHtml(c.referrer || '')}</td></tr>`).join('')
+          || '<tr><td colspan="4" class="mut">nothing yet — open the short link</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+</script>
+</body>
+</html>
