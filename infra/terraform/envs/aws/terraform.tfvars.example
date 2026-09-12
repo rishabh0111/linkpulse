@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+# Required: where budget alerts land. Applying without this fails at plan time by design.
+alert_email = "you@example.com"
+
+# Optional overrides.
+# region           = "ap-south-1"
+# burst_budget_usd = 25
+# repo_url         = "https://github.com/<you>/linkpulse"

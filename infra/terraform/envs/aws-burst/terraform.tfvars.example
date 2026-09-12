@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+# Required: the bucket created by envs/bootstrap. Same value as in backend.hcl.
+state_bucket = "linkpulse-tfstate-<account-id>"
+
+# Optional overrides.
+# region             = "ap-south-1"
+# kubernetes_version = "1.34"

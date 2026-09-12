@@ -1,0 +1,12 @@
+# Copy to infra/terraform/backend.hcl and fill in the bucket that
+# envs/bootstrap created. backend.hcl is gitignored: it contains the AWS account ID,
+# which is not a secret but has no business being published.
+#
+#   terraform -chdir=infra/terraform/envs/aws init -backend-config=../../backend.hcl
+#
+# The key is NOT set here. Each environment declares its own key in versions.tf, which is
+# what keeps their state files apart — and that separation is what makes destroying the
+# burst environment safe.
+
+bucket = "linkpulse-tfstate-<account-id>"
+region = "ap-south-1"
