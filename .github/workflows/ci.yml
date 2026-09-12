@@ -1,0 +1,489 @@
+# The pipeline. Public Actions history is a primary deliverable of this project (plan
+# section 4.6), so this file is written to be read by someone deciding whether to
+# interview me, not only executed.
+#
+# Shape: a cheap fan-out of checks that need nothing, then a build, then an end-to-end job
+# that stands up a real three-node cluster and asserts against it. Nothing downstream runs
+# if the cheap checks fail, so a formatting mistake costs seconds rather than a cluster.
+#
+# What is gated: nothing is pushed to ghcr.io unless the tests pass, Terraform applies
+# cleanly and idempotently against LocalStack, every kustomization renders, the scripts
+# lint, and Trivy finds no fixable HIGH or CRITICAL vulnerability in the image.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  # Manual runs, because a pipeline that can only be triggered by a commit forces empty
+  # commits whenever it needs re-running against unchanged code.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per ref. A push that supersedes an in-flight run cancels it rather than
+  # queueing behind it -- with a job that builds a Kubernetes cluster, a queue gets deep
+  # fast.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # github.repository is <owner>/<repo>, which is exactly the ghcr.io path convention.
+  # Deriving it means a fork's CI pushes to the fork's own registry with no edit.
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # -------------------------------------------------------------------------------------
+  # Static checks. No credentials, no services, no cluster -- so these run identically on
+  # a pull request from a fork, which is precisely where an untrusted change most needs
+  # checking.
+  # -------------------------------------------------------------------------------------
+  app:
+    name: Application (fmt, vet, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          # Read from the file rather than repeated here. Two places to state the Go
+          # version is one place to forget.
+          go-version-file: app/graphql-api/go.mod
+          cache-dependency-path: app/graphql-api/go.sum
+
+      - name: gofmt
+        working-directory: app/graphql-api
+        # `gofmt -l` exits 0 whether or not it lists anything, so the exit status is
+        # useless as a gate and the output has to be tested instead.
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        working-directory: app/graphql-api
+        run: go vet ./...
+
+      - name: go test
+        working-directory: app/graphql-api
+        # -mod=readonly proves go.sum is authoritative: a dependency that resolves to
+        # anything other than what is committed fails here instead of being silently
+        # rewritten, which is the whole value of committing the file.
+        run: go test -mod=readonly -race ./...
+
+  terraform:
+    name: Terraform (fmt, init, validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Static checks for every environment
+        # The same container, the same script and the same invocation a developer gets
+        # from `mise run tf-check`. Not a re-implementation of it in YAML: a second
+        # implementation is a second thing to keep in step, and the CI copy is the one
+        # nobody runs locally until it has already failed.
+        run: docker compose run --rm --entrypoint sh terraform scripts/tf-check.sh
+
+  manifests:
+    name: Manifests (render every kustomization)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Render
+        # Catches kustomize and YAML errors without a cluster, and covers the aws overlay
+        # -- which has no cluster to be applied to and would otherwise be checked by
+        # nothing at all until the metered burst.
+        run: |
+          for dir in k8s/manifests/overlays/local k8s/manifests/overlays/aws \
+                     monitoring/overlays/local monitoring/overlays/aws \
+                     platform/cert-manager platform/sealed-secrets \
+                     gitops/argocd/install gitops/argocd/apps/local gitops/argocd/apps/aws \
+                     gitops/argocd/bootstrap/local gitops/argocd/bootstrap/aws; do
+            echo "::group::$dir"
+            docker compose run --rm kubectl kustomize "$dir" > /dev/null
+            echo "::endgroup::"
+          done
+
+  scripts:
+    name: Scripts (shellcheck, py_compile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: shellcheck every POSIX script
+        # -s sh, because these run in busybox and alpine shells inside the tool images,
+        # not in bash. A bashism that shellcheck lets through under its default dialect is
+        # exactly the class of bug that only appears inside the container.
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo koalaman/shellcheck:stable -s sh \
+            scripts/tf-check.sh scripts/seal.sh scripts/seal-check.sh scripts/burst-teardown.sh scripts/bootstrap.sh \
+            scripts/chaos/experiment2-git.sh
+      - name: Byte-compile the Python scripts
+        # Cheap and catches the syntax-level regressions of a script edited without being
+        # run -- which for cost-report.py and metered-resources.py, whose real targets are
+        # Cost Explorer and EC2, is the only check that can run without an AWS account.
+        run: |
+          docker compose run --rm ops python3 -m py_compile \
+            scripts/smoke.py scripts/observability-check.py scripts/tls-check.py \
+            scripts/backup.py scripts/cost-report.py scripts/metered-resources.py scripts/k6-summary.py \
+            scripts/chaos/lib/chaos.py scripts/chaos/experiment1.py scripts/chaos/experiment2.py \
+            scripts/chaos/experiment3.py scripts/chaos/experiment4.py scripts/chaos/experiment5.py
+      - name: The PowerShell bootstrap parses
+        # No PowerShell on this runner's image is assumed; the parser is enough. It is the
+        # one script that can only be exercised for real on Windows, and the tracker says
+        # so.
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo mcr.microsoft.com/powershell:7.5-alpine-3.20 pwsh -NoProfile -Command \
+            '$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile("/repo/scripts/bootstrap.ps1",[ref]$t,[ref]$e)|Out-Null; if($e.Count){$e|%{$_.Message}; exit 1}; "parse ok"'
+
+  terraform-apply:
+    name: Terraform (apply, idempotent plan, destroy) against LocalStack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start LocalStack
+        run: docker compose up -d --wait localstack
+      - name: Apply
+        run: |
+          docker compose run --rm --entrypoint sh terraform -c '
+            terraform -chdir=infra/terraform/envs/local init -input=false &&
+            terraform -chdir=infra/terraform/envs/local apply -auto-approve -input=false'
+      - name: Plan again -- must be empty
+        # -detailed-exitcode returns 2 when the plan is non-empty. A second plan straight
+        # after an apply that is NOT empty means a resource fights its own definition
+        # (a default the provider rewrites, an attribute LocalStack drops) and every
+        # future apply would "change" it forever. This is the check that caught the
+        # provider-6.13/LocalStack regression in phase 4, and it is why apply alone is not
+        # enough of a test.
+        run: |
+          docker compose run --rm --entrypoint sh terraform -c '
+            terraform -chdir=infra/terraform/envs/local plan -detailed-exitcode -input=false'
+      - name: Destroy
+        # Destroy is the command run under the most pressure -- at the end of the metered
+        # burst -- so it is the one that must be known to work. Exercised here on the
+        # local shape of the same modules.
+        run: |
+          docker compose run --rm --entrypoint sh terraform -c '
+            terraform -chdir=infra/terraform/envs/local destroy -auto-approve -input=false'
+
+  scan:
+    name: Trivy (HIGH/CRITICAL gate)
+    needs: [app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image (single-arch, for scanning)
+        run: docker build -t linkpulse:local app/graphql-api
+      - name: Scan
+        # The same compose service and flags as `mise run scan`, so a developer sees the
+        # same verdict before pushing. --ignore-unfixed: a finding with no available fix
+        # cannot be addressed by a rebuild, so it is reported rather than gated. The
+        # distroless base is what makes this bar clearable rather than an exception list.
+        run: |
+          docker compose run --rm trivy image --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 linkpulse:local
+      - name: Full report (informational)
+        if: always()
+        run: docker compose run --rm trivy image --severity MEDIUM,HIGH,CRITICAL linkpulse:local || true
+
+  # -------------------------------------------------------------------------------------
+  # Build and publish.
+  # -------------------------------------------------------------------------------------
+  image:
+    name: Build and push image
+    # The gate: nothing reaches the registry unless every check above passed.
+    needs: [app, terraform, terraform-apply, manifests, scripts, scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to push to ghcr.io. Scoped to this job rather than granted at the top of
+      # the file, so the static-check jobs above cannot write packages even if something
+      # in them were compromised.
+      packages: write
+    outputs:
+      # Nothing consumes these yet. They are the seam phase 6 needs: the GitOps commit
+      # that updates the manifests repo pins the image by digest, not by tag, so the
+      # digest has to leave this job somehow. Declaring it now keeps that change to one
+      # new job rather than a rewrite of this one.
+      digest: ${{ steps.build.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        # Not on pull requests. A PR from a fork cannot be trusted with a token that can
+        # write packages, and GitHub does not issue one anyway -- so the build below runs
+        # on every PR (proving the Dockerfile still builds) and only pushes on a branch or
+        # tag that came from this repository.
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: app/graphql-api
+          # amd64 and arm64, because the machines this is developed on are not all the
+          # same architecture and the burst nodes are chosen for cost, not for matching a
+          # laptop. Go cross-compiles, so the second architecture costs build time rather
+          # than QEMU emulation -- see the Dockerfile's BUILDPLATFORM note.
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          # The Actions cache, with mode=max so intermediate layers are kept and the Go
+          # module-download layer survives an application-only change. Worth knowing:
+          # this cache is evicted at 10 GB per repository, so a cold build here is a
+          # capacity symptom rather than a bug. A registry cache avoids that ceiling and
+          # is the move if it starts happening -- not now, because it would put cache
+          # blobs in ghcr.io alongside the images themselves.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # An SBOM and a provenance attestation, both of which the Trivy gate in phase 6
+          # will consume. Cheap to produce here; awkward to reconstruct later for an image
+          # that has already shipped.
+          sbom: ${{ github.event_name != 'pull_request' }}
+          provenance: ${{ github.event_name != 'pull_request' }}
+
+  # -------------------------------------------------------------------------------------
+  # End to end, on a real cluster.
+  #
+  # This is the job that makes the rest of the pipeline mean something. The three static
+  # jobs prove the code is well formed; this one proves the manifests deploy, the probes
+  # pass, Traefik routes, and every access pattern in docs/data-model.md answers correctly
+  # against a table Terraform created -- on three nodes, at the same Kubernetes minor
+  # version as the EKS target.
+  # -------------------------------------------------------------------------------------
+  e2e:
+    name: End to end on k3d
+    needs: [app, terraform, manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Start LocalStack
+        run: |
+          docker compose up -d --wait localstack
+
+      - name: Create the DynamoDB table with Terraform
+        # Terraform, not an aws-cli create-table. The point of the end-to-end test is to
+        # catch a key built one way in code and another way in Terraform, and a hand-rolled
+        # table in CI would make that class of bug structurally invisible here.
+        run: |
+          docker compose run --rm --entrypoint sh terraform -c '
+            terraform -chdir=infra/terraform/envs/local init -input=false &&
+            terraform -chdir=infra/terraform/envs/local apply -auto-approve -input=false'
+
+      - name: Build the image
+        # Built locally and side-loaded rather than pulled from ghcr.io, so this job runs
+        # on a pull request from a fork -- where no image was pushed and no registry
+        # credential exists. It also removes a dependency on the `image` job, letting the
+        # two run in parallel.
+        run: docker build -t linkpulse:local app/graphql-api
+
+      - name: Create the cluster
+        run: |
+          docker compose run --rm k3d cluster create --config k8s/k3d/cluster.yaml
+          docker compose run --rm k3d kubeconfig write linkpulse --output .kube/config
+          docker compose run --rm kubectl config set-cluster k3d-linkpulse \
+            --server=https://k3d-linkpulse-serverlb:6443
+
+      - name: Wait for cluster addons
+        # Two waits. k3s installs Traefik through a HelmChart custom resource, so the
+        # traefik Deployment does not exist at all for the first minute or so -- and
+        # `kubectl wait --for=condition=Available` errors out immediately on a missing
+        # resource instead of waiting for it, which reads exactly like a broken cluster.
+        run: |
+          docker compose run --rm kubectl wait --for=create \
+            deploy/traefik -n kube-system --timeout=600s
+          docker compose run --rm kubectl wait --for=condition=Available \
+            deploy/traefik deploy/metrics-server deploy/coredns \
+            -n kube-system --timeout=600s
+
+      - name: Load the image into the cluster
+        run: docker compose run --rm k3d image import linkpulse:local --cluster linkpulse
+
+      - name: Platform -- cert-manager and Sealed Secrets
+        # The same sequence as `mise run platform-apply`, with the same two non-obvious
+        # waits: the webhook's CA bundle has to be injected before the API server will
+        # accept a Certificate, and the sealing key (if there were a backup -- there is not,
+        # in CI) has to precede the controller. On a fresh cluster this is the first-sync
+        # race the ArgoCD Application's retry policy also covers.
+        run: |
+          docker compose run --rm kubectl apply --server-side --force-conflicts -k platform/cert-manager/install
+          docker compose run --rm kubectl wait --for=condition=Available deploy \
+            -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=600s
+          docker compose run --rm kubectl wait --for=jsonpath='{.webhooks[0].clientConfig.caBundle}' \
+            validatingwebhookconfiguration/cert-manager-webhook --timeout=120s
+          docker compose run --rm kubectl apply -k platform/cert-manager/issuers || \
+            docker compose run --rm kubectl apply -k platform/cert-manager/issuers
+          docker compose run --rm kubectl wait --for=condition=Ready certificate/linkpulse-ca \
+            -n cert-manager --timeout=120s
+          docker compose run --rm kubectl apply --server-side --force-conflicts -k platform/sealed-secrets/install
+          docker compose run --rm kubectl rollout status deploy/sealed-secrets-controller \
+            -n sealed-secrets --timeout=300s
+
+      - name: Deploy
+        run: |
+          docker compose run --rm kubectl apply -k k8s/manifests/overlays/local
+          docker compose run --rm kubectl rollout status deploy/linkpulse \
+            -n linkpulse --timeout=180s
+          docker compose run --rm kubectl wait --for=create certificate/linkpulse-tls -n linkpulse --timeout=120s
+          docker compose run --rm kubectl wait --for=condition=Ready certificate/linkpulse-tls -n linkpulse --timeout=120s
+
+      - name: Assert the autoscaler took ownership of the replica count
+        # The Deployment deliberately declares no `replicas`, so this is what proves the
+        # HPA is actually driving it rather than the Deployment having quietly defaulted
+        # to one pod. Without this, the whole "HPA owns replicas" design could regress to
+        # a single unmanaged pod and every other assertion here would still pass.
+        run: |
+          docker compose run --rm kubectl wait --for=jsonpath='{.status.readyReplicas}'=2 \
+            deploy/linkpulse -n linkpulse --timeout=180s
+          docker compose run --rm kubectl get hpa linkpulse -n linkpulse -o wide
+
+      - name: Smoke test through the ingress, over TLS, verified
+        # The CA is exported from the cluster and passed explicitly; nothing is trusted
+        # by default and nothing is --insecure. A green run here means the certificate
+        # cert-manager issued for the in-cluster name is the one Traefik serves.
+        run: |
+          mkdir -p certs
+          docker compose run --rm -T kubectl get secret linkpulse-ca -n cert-manager \
+            -o go-template-file=scripts/templates/ca-cert.gotmpl > certs/ca.crt
+          docker compose run --rm smoke \
+            python3 scripts/smoke.py --base-url https://k3d-linkpulse-serverlb --ca-cert certs/ca.crt
+
+      - name: Deploy the monitoring stack
+        run: |
+          docker compose run --rm kubectl apply -k monitoring/overlays/local
+          docker compose run --rm kubectl rollout status deploy -n monitoring --timeout=900s
+          docker compose run --rm kubectl rollout status daemonset -n monitoring --timeout=300s
+
+      - name: Prove the stack is observing
+        # Targets up, rules loaded, alerts API answering, dashboards provisioned, a panel
+        # rendered to PNG, application logs in Loki. Runs after a deliberate pause so the
+        # kube-state-metrics liveness probe has had time to matter: `rollout status`
+        # returns on readiness, and a liveness misconfiguration only shows up later.
+        run: |
+          sleep 90
+          docker compose run --rm smoke \
+            python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb
+
+      - name: Every ingress serves a verified certificate from the cluster CA
+        # --skip argocd: this job deploys with kubectl and never installs ArgoCD, so that
+        # one Ingress does not exist here. Skipped is printed as skipped, not counted.
+        run: |
+          docker compose run --rm smoke \
+            python3 scripts/tls-check.py --ingress k3d-linkpulse-serverlb --ca certs/ca.crt --skip argocd.localtest.me
+
+      - name: Sealed Secrets round trip
+        run: docker compose run --rm -T ops sh scripts/seal-check.sh
+
+      - name: Load baseline (k6, two minutes, thresholds as the verdict)
+        run: |
+          docker compose run --rm k6 run load-testing/k6/baseline.js --summary-export load-testing/k6/output/baseline.json
+          docker compose run --rm smoke python3 scripts/k6-summary.py load-testing/k6/output/baseline.json
+
+      # ---- the chaos experiments that need no GitOps path (2 needs Gitea + ArgoCD and
+      # runs from `mise run chaos-2` on a gitops cluster). Each is the transcription of
+      # its mise task, and each ends with the observability check: an experiment that
+      # leaves the stack blind has failed even if its own assertions passed.
+      - name: Chaos 3 -- the datastore goes away
+        run: |
+          docker compose run --rm -T ops python3 scripts/chaos/experiment3.py pre
+          docker compose pause localstack
+          docker compose run --rm -T ops python3 scripts/chaos/experiment3.py during || docker compose unpause localstack
+          docker compose unpause localstack
+          docker compose run --rm -T ops python3 scripts/chaos/experiment3.py post
+          docker compose run --rm smoke python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb
+
+      - name: Chaos 1 -- DynamoDB throttles the click writes
+        run: |
+          docker compose run --rm -T ops python3 scripts/chaos/experiment1.py pre
+          docker compose run -d --name linkpulse-k6-throttle -e RATE=20 -e DURATION=6m -e P99_MS=1000 k6 run load-testing/k6/throttle.js --summary-export load-testing/k6/output/chaos-1-throttle.json
+          docker compose run --rm -T ops python3 scripts/chaos/experiment1.py during
+          docker wait linkpulse-k6-throttle
+          docker rm linkpulse-k6-throttle
+          docker compose run --rm -T ops python3 scripts/chaos/experiment1.py post
+          docker compose run --rm smoke python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb
+
+      - name: Chaos 4 -- one pod leaks to OOMKilled and CrashLoopBackOff
+        run: |
+          docker compose run --rm -T ops python3 scripts/chaos/experiment4.py pre
+          docker compose run --rm -T ops python3 scripts/chaos/experiment4.py during
+          docker compose run --rm -T ops python3 scripts/chaos/experiment4.py post
+          docker compose run --rm smoke python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb
+
+      - name: Chaos 5 -- a node drained, then stopped
+        run: |
+          docker compose run --rm -T ops python3 scripts/chaos/experiment5.py pre
+          docker compose run --rm -T ops python3 scripts/chaos/experiment5.py drain
+          docker compose run --rm k3d node stop k3d-linkpulse-agent-0
+          docker compose run --rm -T ops python3 scripts/chaos/experiment5.py loss || docker compose run --rm k3d node start k3d-linkpulse-agent-0
+          docker compose run --rm k3d node start k3d-linkpulse-agent-0
+          docker compose run --rm -T ops python3 scripts/chaos/experiment5.py post
+          docker compose run --rm smoke python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb
+
+      - name: Chaos evidence
+        # The timelines and panels each run wrote, as a build artefact. The committed
+        # copies under docs/evidence are from the runs the tracker describes; these are
+        # this run's, for comparison when a threshold is being reconsidered.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-evidence
+          path: |
+            docs/evidence/chaos-*/
+            load-testing/k6/output/
+          if-no-files-found: ignore
+
+      - name: Backup, destroy the table, recreate it, restore, verify
+        # Runs last because it is destructive: the table Terraform created is destroyed
+        # and recreated underneath the running application (which goes NotReady and
+        # recovers, as designed). The smoke test above is what put data in the table, so
+        # the restore has something real to be faithful to.
+        run: |
+          OPS="docker compose run --rm -T -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_REGION=ap-south-1 ops"
+          $OPS python3 scripts/backup.py export --endpoint-url http://localstack:4566 --table linkpulse --out backups/ci.jsonl.gz
+          docker compose run --rm --entrypoint sh terraform -c '
+            terraform -chdir=infra/terraform/envs/local destroy -auto-approve -input=false &&
+            terraform -chdir=infra/terraform/envs/local apply -auto-approve -input=false'
+          $OPS python3 scripts/backup.py restore --endpoint-url http://localstack:4566 --table linkpulse --in backups/ci.jsonl.gz
+          $OPS python3 scripts/backup.py verify  --endpoint-url http://localstack:4566 --table linkpulse --in backups/ci.jsonl.gz
+          $OPS python3 scripts/metered-resources.py --endpoint-url http://localstack:4566
+
+      - name: Diagnostics
+        # `always()`, because the interesting run is the failed one. A CI job that prints
+        # nothing when it fails turns every red build into a local reproduction.
+        if: always()
+        run: |
+          docker compose run --rm kubectl get pods,svc,ingress,hpa,pdb -n linkpulse -o wide || true
+          docker compose run --rm kubectl get pods -n monitoring -o wide || true
+          docker compose run --rm kubectl get pods -n cert-manager -o wide || true
+          docker compose run --rm kubectl get pods -n sealed-secrets -o wide || true
+          docker compose run --rm kubectl get certificates,clusterissuers -A || true
+          docker compose run --rm kubectl describe pods -n linkpulse || true
+          docker compose run --rm kubectl logs -n linkpulse -l app.kubernetes.io/name=linkpulse --tail=200 --prefix || true
+          docker compose run --rm kubectl get events -n linkpulse --sort-by=.lastTimestamp || true
