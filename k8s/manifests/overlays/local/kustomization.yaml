@@ -1,0 +1,64 @@
+# The k3d overlay: the cluster the chaos experiments actually run against.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: linkpulse
+
+resources:
+  - ../../base
+  # The in-cluster name for the LocalStack container that runs outside the cluster. Only
+  # the local overlay has this: on EKS the store is real DynamoDB, reached over the free
+  # gateway endpoint, and there is nothing to alias.
+  - localstack.yaml
+
+images:
+  - name: ghcr.io/owner/linkpulse
+    newName: linkpulse
+    newTag: local
+
+# Overrides layered onto the generated base ConfigMap. `behavior: merge` keeps every key
+# from base/config.env and adds these, so the local path cannot silently diverge on a
+# setting it never meant to change.
+configMapGenerator:
+  - name: linkpulse-config
+    behavior: merge
+    literals:
+      # Identical to the value docker-compose.yml sets, which is the point.
+      #
+      # `localstack` resolves here because localstack.yaml declares a Service of that name
+      # in this namespace, pointing at the container's pinned address. So the inner loop
+      # and the cluster read the same string, and the setting most likely to drift between
+      # them cannot.
+      - DDB_ENDPOINT=http://localstack:4566
+
+      # The redirect hot path returns absolute URLs built from this, so it must be the
+      # address a browser uses -- the ingress through the k3d loadbalancer, not the
+      # in-cluster Service name.
+      - PUBLIC_BASE_URL=http://linkpulse.localtest.me:8088
+
+      - LINKPULSE_VERSION=k3d-local
+
+      # Chaos experiment 4's fault injection: routes /debug/leak, which allocates and
+      # retains memory on request (internal/httpapi/health.go says why load alone will not
+      # do). Local only. The aws overlay never sets it, so the endpoint does not exist on
+      # EKS -- and a request for it there is a 404, not a leak.
+      - LINKPULSE_ENABLE_DEBUG_LEAK=true
+
+secretGenerator:
+  - name: linkpulse-aws
+    literals:
+      # Not real credentials, and not a placeholder for real ones either: LocalStack
+      # accepts any non-empty value and validates nothing. They exist because the AWS SDK
+      # refuses to sign a request without a credential chain, so the process would fail to
+      # start rather than fail to authenticate.
+      #
+      # The AWS overlay has no Secret at all -- that is the point of IRSA. This file is
+      # therefore not a "secret we tolerate committing"; it is a fixture that has no
+      # production counterpart. Anything genuinely secret arrives as a Sealed Secret
+      # (platform/sealed-secrets; the aws overlays carry them), never as a literal here.
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+
+patches:
+  - path: patch-deployment.yaml
+  - path: patch-ingress-tls.yaml

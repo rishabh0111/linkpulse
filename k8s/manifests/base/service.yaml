@@ -1,0 +1,25 @@
+# ClusterIP. The Ingress is the only way in from outside, so a NodePort or LoadBalancer
+# here would be a second, unmonitored entrance that bypasses every rule Traefik applies.
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkpulse
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: linkpulse
+  ports:
+    - name: http
+      port: 80
+      # Named, not numeric. The container can move off 8080 (PORT is configurable) without
+      # this file having to change in the same commit -- and a mismatch between the two
+      # numbers is otherwise invisible until traffic fails.
+      targetPort: http
+      protocol: TCP
+
+  # Endpoints are removed as soon as a pod goes Terminating, which combined with the
+  # Deployment's preStop sleep is what makes a rollout drop no requests.
+  #
+  # trafficDistribution / topology-aware routing is deliberately NOT set: on a three-node
+  # local cluster it would pin traffic to the caller's node and hide the cross-node
+  # behaviour that chaos experiment 5 exists to exercise.

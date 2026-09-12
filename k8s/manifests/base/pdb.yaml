@@ -1,0 +1,30 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: linkpulse
+  annotations:
+    # Wave 1, with the HPA: a budget over pods that do not exist yet is not wrong, just
+    # pointless to have raced for.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # maxUnavailable, not minAvailable, and the difference is load-bearing here.
+  #
+  # A PDB is evaluated against the number of pods that currently exist, not against the
+  # HPA's minReplicas. With `minAvailable: 2` and the HPA sitting at its floor of 2, the
+  # budget would permit zero voluntary disruptions -- so `kubectl drain` would block
+  # forever and chaos experiment 5 would deadlock rather than demonstrate anything. That
+  # failure is a genuinely common production mistake and it looks like a hung cluster.
+  #
+  # `maxUnavailable: 1` instead means one pod may go at a time at any replica count: a
+  # drain evicts one, waits for its replacement to become ready elsewhere, then proceeds.
+  # It protects availability without ever being unsatisfiable.
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: linkpulse
+
+  # Note what a PDB does NOT cover: it constrains *voluntary* disruption only -- drains,
+  # evictions, node-pool upgrades. `docker kill` on a k3d agent (experiment 5) is an
+  # involuntary disruption and no budget can prevent it. The budget's role there is what
+  # happens next, during the drain and reschedule, and the write-up says so rather than
+  # claiming the PDB saved the node.

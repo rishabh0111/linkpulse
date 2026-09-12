@@ -1,0 +1,50 @@
+# The EKS overlay, for the 72-hour burst in plan section 11.
+#
+# It is short, and that is the deliverable. The claim in plan section 4.5 is that the same
+# manifests deploy to EKS unchanged; the honest version of that claim is this file --
+# everything environment-specific in one place, small enough to read before spending
+# metered time on it. What differs is an ingress class, an IAM role annotation, and the
+# absence of a Secret. Nothing about the workload itself.
+#
+# NOT APPLIED YET. There are no AWS credentials in this environment, so this overlay is
+# rendered and validated in CI but has never run against a real cluster. The tracker says
+# so too; it must not be described as verified until the burst.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: linkpulse
+
+resources:
+  - ../../base
+
+# Set by CI to the digest it pushed. A tag would be mutable -- two clusters could resolve
+# ghcr.io/<repo>:main to different bytes -- and during a metered burst "which build is
+# actually running" is not a question worth paying to answer.
+images:
+  - name: ghcr.io/owner/linkpulse
+    newName: ghcr.io/owner/linkpulse
+    newTag: main
+
+configMapGenerator:
+  - name: linkpulse-config
+    behavior: merge
+    literals:
+      # No DDB_ENDPOINT: empty means real AWS, which is the base's shape already. It is
+      # named here in a comment rather than set, because the absence is the decision.
+      - LINKPULSE_VERSION=eks-burst
+      # Replaced with the ALB hostname once the ingress has one. It cannot be known before
+      # the first apply, which is itself worth recording in the burst runbook rather than
+      # discovering on the clock.
+      - PUBLIC_BASE_URL=https://linkpulse.example.invalid
+
+# Deliberately no secretGenerator.
+#
+# The local overlay needs static AWS credentials because LocalStack has no identity
+# system. On EKS the ServiceAccount below is annotated with an IAM role and the pod
+# receives short-lived credentials from STS through a projected token -- so there is no
+# long-lived secret to store, rotate, seal, or leak. Removing the Secret is the entire
+# security argument for IRSA, and it shows up here as a section that does not exist.
+
+patches:
+  - path: patch-serviceaccount.yaml
+  - path: patch-ingress.yaml

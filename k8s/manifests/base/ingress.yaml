@@ -1,0 +1,44 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkpulse
+  annotations:
+    # Wave 1: after the Service and Deployment. An Ingress that appears before its backend
+    # is briefly a 503 from Traefik; waiting costs nothing.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # Traefik is what k3s ships with, and the ALB controller is what EKS uses. The class is
+  # therefore the one field in this file that is genuinely environment-specific, so the
+  # aws overlay patches it rather than the base pretending to be portable.
+  ingressClassName: traefik
+  rules:
+    # Two rules, on purpose.
+    #
+    # 1. The host rule is the realistic one and the one the local overlay attaches TLS to.
+    #    linkpulse.localtest.me is used rather than a made-up name because localtest.me
+    #    and every subdomain of it resolve to 127.0.0.1 from public DNS. That keeps the
+    #    "no system-level changes to any host" constraint intact -- the usual alternative
+    #    is editing /etc/hosts or C:\Windows\System32\drivers\etc\hosts, which needs
+    #    administrator rights on a daily-driver machine and is exactly the kind of host
+    #    mutation this project claims not to require.
+    - host: linkpulse.localtest.me
+      http:
+        paths: &paths
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: linkpulse
+                port:
+                  name: http
+
+    # 2. A rule with no host matches any Host header. This is what in-cluster and CI
+    #    clients use: localtest.me resolves to 127.0.0.1, which inside a container is that
+    #    container's own loopback, so the smoke test cannot reach the ingress by that name
+    #    however correct it is from a browser. With this rule the same test can target
+    #    http://k3d-linkpulse-serverlb directly and exercise the real ingress path rather
+    #    than port-forwarding around it.
+    #
+    #    The anchor above and the alias here mean the two rules cannot drift apart.
+    - http:
+        paths: *paths

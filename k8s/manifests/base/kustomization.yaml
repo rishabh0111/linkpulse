@@ -1,0 +1,52 @@
+# The base is the AWS/EKS shape of the deployment; the overlays add environment
+# specifics. That direction is deliberate -- see the note in config.env about
+# DDB_ENDPOINT: if the base were the local shape, the production path would depend on
+# somebody remembering to override it.
+#
+# Kustomize rather than Helm: there is one application and two environments, so a
+# templating language would be introduced in order to substitute about four values.
+# Kustomize is also what ArgoCD renders natively in phase 6, and `kubectl apply -k` needs
+# no tool that is not already inside kubectl.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: linkpulse
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+
+# A generator, not a committed ConfigMap object -- and the reason is behavioural, not
+# stylistic.
+#
+# The generated name carries a hash of the content (linkpulse-config-8f4c2d...), and
+# kustomize rewrites the Deployment's envFrom reference to match. So changing a value here
+# changes the pod template, which rolls the pods. A static ConfigMap keeps its name, the
+# pod template is byte-identical, nothing restarts -- and since this process reads its
+# environment once at startup, the new value would simply never take effect.
+#
+# That is not a theoretical tidiness point: chaos experiment 1 demonstrates its mitigation
+# by flipping CLICK_SHARDS from 16 to 1 in git. With a static ConfigMap that commit would
+# sync green in ArgoCD, change nothing at all, and the experiment would "prove" the
+# mitigation while actually testing the same running configuration twice.
+configMapGenerator:
+  - name: linkpulse-config
+    envs:
+      - config.env
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: linkpulse
+      app.kubernetes.io/part-of: linkpulse
+      app.kubernetes.io/managed-by: kustomize
+    # includeSelectors: false is important, not cosmetic. Were kustomize to add these to
+    # spec.selector, the Deployment's selector would change whenever a label here changed
+    # -- and a Deployment's selector is immutable after creation, so the next apply would
+    # fail with a message about an immutable field rather than about labels. The selector
+    # stays hand-written and minimal in deployment.yaml for exactly that reason.
+    includeSelectors: false

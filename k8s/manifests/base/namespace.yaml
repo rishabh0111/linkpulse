@@ -1,0 +1,26 @@
+# The namespace is part of the base rather than something the bootstrap script creates
+# imperatively. ArgoCD (phase 6) syncs this directory, and an Application that cannot
+# create its own destination namespace needs `CreateNamespace=true` — a sync option that
+# silently makes the namespace untracked and undeletable by the same Application. Owning
+# it as a resource keeps the whole desired state in git, which is the point of GitOps.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: linkpulse
+  annotations:
+    # Wave -1: the namespace has to exist before anything that lives in it. ArgoCD already
+    # orders Namespaces first by kind, so this is belt-and-braces -- but the waves are what
+    # make the order legible in git rather than known from the ArgoCD source.
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/name: linkpulse
+    app.kubernetes.io/part-of: linkpulse
+    # Pod Security Admission. `restricted` is the strictest built-in profile and the
+    # container already satisfies it: non-root, no privilege escalation, all capabilities
+    # dropped, seccomp RuntimeDefault. Enforcing it here means a future manifest that
+    # quietly drops one of those is rejected by the API server instead of merely being
+    # reviewed by me. `audit` and `warn` are set to the same level so the rejection
+    # reason is also logged and echoed to whoever ran kubectl.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

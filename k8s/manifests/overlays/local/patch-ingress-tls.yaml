@@ -1,0 +1,32 @@
+# TLS on the local ingress, from the cluster's own CA (platform/cert-manager).
+#
+# In the overlay rather than the base because the base's job is to be the shape both
+# environments share, and this is the one place they genuinely differ: on k3d, TLS
+# terminates at Traefik on a certificate cert-manager issues into a Secret; on EKS it
+# terminates at the ALB on a certificate from ACM, and the `tls` block below would be
+# ignored there while still causing cert-manager to mint a Secret nothing reads.
+#
+# The annotation is the request. cert-manager's ingress-shim watches for it, creates a
+# Certificate for every host in the tls block, and writes the Secret named here; Traefik
+# reads that Secret by name and serves it on 443. Nothing else has to change: the http
+# rules and the hostless catch-all are exactly as the base declares them.
+#
+# The two names deliberately mirror the two rules in the base. linkpulse.localtest.me is
+# what a browser uses (https://linkpulse.localtest.me:8443). k3d-linkpulse-serverlb is
+# what the smoke test uses from inside a container, where localtest.me resolves to the
+# container's own loopback -- and Traefik selects the certificate by SNI, so a name that
+# is not in the certificate gets Traefik's default self-signed one and the check fails
+# on verification. Putting the in-cluster name in the SAN list is what lets the smoke
+# test verify the chain rather than skip it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkpulse
+  annotations:
+    cert-manager.io/cluster-issuer: linkpulse-ca
+spec:
+  tls:
+    - hosts:
+        - linkpulse.localtest.me
+        - k3d-linkpulse-serverlb
+      secretName: linkpulse-tls

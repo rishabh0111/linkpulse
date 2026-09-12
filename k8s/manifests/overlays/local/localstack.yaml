@@ -1,0 +1,88 @@
+# How the cluster reaches LocalStack, which runs outside it as a Docker Compose service.
+#
+# A Service with no selector plus a hand-written EndpointSlice. This is the Kubernetes-
+# native way to give an out-of-cluster dependency an in-cluster name: the Service allocates
+# a ClusterIP and kube-proxy programmes it, but instead of an endpoint controller filling
+# in pod addresses from a selector, the addresses are declared here.
+#
+# The result is that `http://localstack:4566` resolves inside the cluster to exactly the
+# same thing it resolves to in docker-compose.yml. The local overlay's DDB_ENDPOINT is
+# therefore byte-identical to the compose one, so the fast inner loop and the cluster
+# cannot drift on the one setting most likely to.
+#
+# ---------------------------------------------------------------------------------------
+# What this replaces, and why
+#
+# k3d already offers a route: on cluster create it writes a DNS record into CoreDNS for
+# every container on the Docker network, keyed by container name, so `linkpulse-localstack`
+# resolves from a pod. That worked, and it was the first implementation. Two things made it
+# the wrong answer:
+#
+#   1. The records are IP literals captured at cluster-create time. Recreate the LocalStack
+#      container — which `mise run clean` does — and the record points at an address
+#      nothing answers on. Readiness then fails with a connection timeout that names no
+#      cause, on a cluster that looks entirely healthy.
+#
+#   2. They are only written on cluster create and cluster start, so ordering decides
+#      whether they exist at all. Bring the cluster up before LocalStack and there is no
+#      record, forever.
+#
+# The obvious repair — a task that re-injects them — was written and then deleted, because
+# k3d's only re-injection path is a cluster stop/start, and `k3d cluster start` was
+# observed exiting fatal when the load balancer container failed to come back
+# ("failed to get ready: ... status=restarting"). The cluster recovered on its own a minute
+# later, which is the worst possible behaviour for a task: a non-zero exit from something
+# that actually worked.
+#
+# So the dependency on injected records is removed rather than repaired. Pinning
+# LocalStack's address in docker-compose.yml fixes the staleness; declaring it here fixes
+# the ordering, because these objects are applied with the rest of the manifests and do not
+# care when the cluster was created or whether LocalStack was running at the time.
+# ---------------------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+  annotations:
+    # Wave -1, with the namespace: the store must be reachable before the Deployment's
+    # readiness probe starts asking for it, or the first sync waits out a probe failure
+    # for no reason.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 4566
+      targetPort: 4566
+      protocol: TCP
+  # No selector, deliberately. With one, the endpoint controller would take ownership of
+  # the EndpointSlice below and immediately empty it — there are no pods matching, because
+  # the thing being addressed is not a pod.
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: localstack
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    # This label is what associates the slice with the Service; it is not decorative, and
+    # a Service with no matching slice resolves to a ClusterIP that black-holes traffic.
+    kubernetes.io/service-name: localstack
+addressType: IPv4
+ports:
+  - name: http
+    port: 4566
+    protocol: TCP
+endpoints:
+  # The address pinned in docker-compose.yml. These three literals — the subnet, the
+  # container's ipv4_address, and this line — are one fact written in two files, so they
+  # change together. Both files say so.
+  - addresses:
+      - "172.30.0.10"
+    conditions:
+      # Without this, kube-proxy treats the endpoint as not ready and routes nothing to it.
+      # There is no health checking behind a selectorless Service: readiness here is an
+      # assertion, and the real check is the application's own /readyz probe, which fails
+      # honestly if LocalStack is not actually up.
+      ready: true

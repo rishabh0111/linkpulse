@@ -1,0 +1,63 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: linkpulse
+  annotations:
+    # Wave 1: after the Deployment it scales. Created first, it reports the target as
+    # missing until the next reconcile -- harmless, but it is noise in the sync log during
+    # exactly the demo where the log is being read.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: linkpulse
+
+  # minReplicas is the real committed replica count for this service -- the Deployment
+  # deliberately has no `replicas` field, so this is the single owner of that number.
+  #
+  # 2, not 1: one replica means every rollout, every node drain and every eviction is an
+  # outage, which would make the PodDisruptionBudget below decorative. Two is the smallest
+  # number at which "the budget held" is a statement about anything.
+  minReplicas: 2
+
+  # 6 against 3 nodes with a 100m request. The ceiling exists so a runaway scale-up cannot
+  # exhaust a laptop; it is high enough that the k6 baseline in phase 9 can actually reach
+  # it, which matters because an HPA that never scales proves nothing.
+  maxReplicas: 6
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Percent of the *request*, not of a limit or of the node. 70% of 100m = 70m.
+          # Chosen to leave headroom for the scale-up to land before saturation rather
+          # than after it: at 90% the new pod finishes starting up around the time the
+          # existing ones are already failing.
+          averageUtilization: 70
+
+  behavior:
+    scaleUp:
+      # 0s: react immediately. The redirect path is the thing under load and it has no
+      # queue to absorb a delay, so a stabilization window here just means requests served
+      # slowly while the autoscaler deliberates.
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      # 300s: slow, and asymmetric with scale-up on purpose. k6 load arrives and departs
+      # in steps, and a short window would let the HPA remove pods between stages and then
+      # immediately re-add them -- flapping that shows up in the evidence graphs as noise
+      # indistinguishable from a real scaling incident. Being slow to scale down costs
+      # idle CPU on a laptop, which is free.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min

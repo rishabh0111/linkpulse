@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkpulse
+  annotations:
+    # Internet-facing ALB with IP targets. IP mode sends traffic straight to pod IPs
+    # rather than through a NodePort, which removes a hop and, more usefully, means the
+    # ALB's own health checks observe individual pods -- so a pod failing readiness leaves
+    # the target group immediately instead of after kube-proxy notices.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # The ALB must health-check the readiness endpoint, not /. Checking / would report a
+    # pod healthy while it cannot reach DynamoDB, and the load balancer would keep sending
+    # it traffic through exactly the outage chaos experiment 3 induces.
+    alb.ingress.kubernetes.io/healthcheck-path: /readyz
+    # An ALB bills by the hour whether or not anything is behind it. One shared ALB for
+    # the whole namespace, torn down with the cluster, is the difference between a few
+    # dollars and a surprise.
+    alb.ingress.kubernetes.io/group.name: linkpulse
+spec:
+  # The ALB controller, not Traefik. This single field is why the base declares an
+  # ingressClassName it knows the overlay will replace, rather than leaving it unset:
+  # an Ingress with no class is claimed by whichever controller has the default
+  # IngressClass, and "whichever" is not a deployment strategy.
+  ingressClassName: alb

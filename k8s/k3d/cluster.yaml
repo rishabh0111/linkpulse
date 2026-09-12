@@ -1,0 +1,76 @@
+# The local cluster, declared rather than assembled from command-line flags.
+#
+# `k3d cluster create --config` reads this. The alternative is a dozen flags living in a
+# mise task, where the shape of the cluster is invisible unless you read the task, and
+# where changing it is an edit to a command line rather than a reviewable diff. The
+# cluster is infrastructure; it gets a committed definition like the rest of it.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+
+metadata:
+  name: linkpulse
+
+# Three nodes, which is the minimum number at which the interesting things are real.
+#
+# On one node, `kubectl drain` has nowhere to reschedule to, a PodDisruptionBudget can
+# never be satisfied, topology spread constraints are vacuous, and chaos experiment 5
+# ("kill a node") is just "kill the cluster". Three nodes cost nothing here and are what
+# make those five experiments statements about Kubernetes rather than about Docker.
+servers: 1
+agents: 2
+
+# Pinned to the same minor version EKS runs, not to whatever k3d defaults to.
+#
+# This is the whole portability claim in one line: the manifests in k8s/manifests are
+# exercised locally against the same API version they will meet during the burst, so a
+# field that is beta in one and GA in the other cannot surprise me on a metered clock.
+# k3d 5.9.0's own default is v1.35.x, which would break that. Raise this only in step with
+# `aws eks describe-cluster-versions`.
+image: rancher/k3s:v1.34.5-k3s1
+
+# Join the Docker network that docker-compose.yml already created, rather than letting
+# k3d create its own.
+#
+# This is what lets pods reach LocalStack. On create, k3d writes a DNS record into the
+# cluster's CoreDNS ConfigMap for every container on this network, keyed by container
+# name -- so `linkpulse-localstack` resolves from inside a pod. Without a shared network
+# there is no route at all: Docker's embedded DNS lives at 127.0.0.11 inside each network
+# namespace and is unreachable from a pod, so name resolution would have to be replaced
+# with a hardcoded IP that changes on every restart.
+network: linkpulse
+
+ports:
+  # 8088 rather than 8080, because 8080 is taken by the `api` service in
+  # docker-compose.yml -- the fast inner loop and the cluster are expected to run at the
+  # same time, and a port collision between them would make "did I just test the container
+  # or the cluster?" a question that can be answered wrongly.
+  - port: "127.0.0.1:8088:80"
+    nodeFilters:
+      - loadbalancer
+  - port: "127.0.0.1:8443:443"
+    nodeFilters:
+      - loadbalancer
+
+options:
+  k3d:
+    wait: true
+    # Generous, and it needs to be. On a cold machine k3s pulls CoreDNS, Traefik,
+    # metrics-server and local-path-provisioner from Docker Hub through containerd, and
+    # those pulls have been observed taking five minutes each on a constrained connection.
+    # A short timeout here turns a slow network into a "cluster creation FAILED" that
+    # rolls back a cluster which was in fact working.
+    timeout: 600s
+  k3s:
+    extraArgs:
+      # Add the load balancer's container name to the API server certificate.
+      #
+      # Required because nothing in this project talks to the cluster from the host --
+      # there is no host kubectl. Every kubectl invocation runs in a container on the
+      # linkpulse network and addresses the API server as
+      # https://k3d-linkpulse-serverlb:6443. Without this SAN, that connection fails
+      # certificate validation, and the only fixes would be --insecure-skip-tls-verify
+      # (which turns off the check that catches a genuinely wrong endpoint) or installing
+      # kubectl on the host.
+      - arg: --tls-san=k3d-linkpulse-serverlb
+        nodeFilters:
+          - server:*

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkpulse
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          # Never, not IfNotPresent. The image is side-loaded into the nodes with
+          # `k3d image import` and does not exist in any registry, so a pull would be
+          # attempted against docker.io/library/linkpulse:local and fail. IfNotPresent
+          # would usually work -- and would fail confusingly on exactly the occasion the
+          # import was skipped or silently failed, which is when a clear error is worth
+          # most.
+          imagePullPolicy: Never
+
+          envFrom:
+            # Strategic-merge patches replace a list wholesale when its elements have no
+            # merge key, and envFrom has none. So the base's configMapRef has to be
+            # restated here rather than only the addition -- dropping it would leave the
+            # container with credentials and no configuration, and the failure would be a
+            # confusing "table not found" rather than an obviously missing ConfigMap.
+            #
+            # The names carry no hash suffix here on purpose: kustomize rewrites
+            # references to its own generated objects by name, so these resolve to the
+            # hashed names in the rendered output.
+            - configMapRef:
+                name: linkpulse-config
+            - secretRef:
+                name: linkpulse-aws

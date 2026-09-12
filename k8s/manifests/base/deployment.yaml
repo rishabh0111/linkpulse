@@ -1,0 +1,196 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkpulse
+spec:
+  # There is deliberately no `replicas` field.
+  #
+  # An HPA and a committed replica count are two controllers writing the same number. In a
+  # GitOps setup that is not a style question: ArgoCD sees the HPA's value as drift from
+  # git, resets it, the HPA scales it back, and the Application oscillates between Synced
+  # and OutOfSync forever. Omitting the field leaves spec.replicas unmanaged after
+  # creation, so the HPA is the single owner and hpa.yaml's minReplicas is the committed
+  # source of truth. The cost is that the very first apply creates one pod for the few
+  # seconds before the HPA's first evaluation.
+  revisionHistoryLimit: 3
+
+  # The rollout must not reduce capacity, and it must be able to stall rather than
+  # destroy: maxUnavailable 0 means chaos experiment 2's broken image adds a pod that
+  # never becomes ready and then stops, leaving every healthy pod still serving. That
+  # stalled-but-serving state is the signature of the most common real bad deploy, and it
+  # is what makes the GitOps rollback demo a rollback rather than an outage recovery.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  # progressDeadlineSeconds is what turns "stalled" into an observable fact: after 120s
+  # without progress the Deployment gets a Progressing=False / ProgressDeadlineExceeded
+  # condition, which is what ArgoCD reads as Degraded and what experiment 2 asserts on.
+  # Without it the rollout hangs indefinitely and reports nothing at all.
+  progressDeadlineSeconds: 120
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: linkpulse
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: linkpulse
+      annotations:
+        # Scrape configuration by annotation, read by the Prometheus scrape config in
+        # monitoring/ (phase 7). A ServiceMonitor would be the operator-native form, but
+        # it needs a CRD that must exist before this Deployment can be applied at all --
+        # an ordering dependency between the application and the monitoring stack that
+        # annotations do not have. Phase 7 revisits this if the operator goes in.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: linkpulse
+
+      # The application never calls the Kubernetes API, so a mounted token would only add
+      # blast radius if the process were ever compromised.
+      #
+      # This does not break IRSA during the EKS burst: the pod identity webhook injects
+      # its own projected aws-iam-token volume with the sts.amazonaws.com audience, which
+      # is a different volume from the default token this setting suppresses. Flagged for
+      # confirmation the first time the burst runs -- cheap to verify there, expensive to
+      # assume.
+      automountServiceAccountToken: false
+
+      # 40s = 5s preStop + 15s SHUTDOWN_GRACE, with headroom. The click recorder drains
+      # its queue on SIGTERM; a grace period shorter than that drain would trade away the
+      # "clicks queued before shutdown still land" property that the unit tests pin.
+      terminationGracePeriodSeconds: 40
+
+      securityContext:
+        runAsNonRoot: true
+        # 65532 is distroless's `nonroot`. Numeric, because the image has no /etc/passwd
+        # entry to resolve a name against and runAsNonRoot cannot verify a named user.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Spread pods across the three k3d nodes. This is what makes chaos experiment 5
+      # (docker kill an agent node) a real test: with every replica on one node, killing
+      # it is a total outage rather than a rescheduling event, and the PDB has nothing to
+      # hold.
+      #
+      # ScheduleAnyway, not DoNotSchedule: a hard constraint would leave pods
+      # unschedulable once replicas exceed node count, so the HPA's scale-up to 6 would
+      # stop at 3 and look like an HPA fault rather than the scheduling policy it is.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: linkpulse
+
+      containers:
+        - name: api
+          # Placeholder. Every overlay replaces it: the local overlay with the image k3d
+          # imported, CI with ghcr.io/<repo> pinned to a digest. Left obviously fake so
+          # that a missing override fails at pull time instead of quietly deploying
+          # something real but wrong.
+          image: ghcr.io/owner/linkpulse:dev
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: linkpulse-config
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The binary is static and writes nothing to disk -- no temp files, no cache,
+            # no rendered config. There is therefore no reason for a writable layer, and
+            # a read-only root means execution alone does not let an attacker stage a
+            # payload on the filesystem.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          resources:
+            requests:
+              # The HPA divides observed CPU by this number, so the request is not merely
+              # a scheduling hint -- it is the denominator of the scaling decision. 100m
+              # against a 70% target means a replica counts as saturated at 70m, which the
+              # committed k6 baseline in phase 9 is what actually calibrates.
+              cpu: 100m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+              # No CPU limit, deliberately.
+              #
+              # A CPU limit is enforced by CFS quota, which throttles the process at the
+              # quota boundary even when the node is completely idle. On a latency-
+              # sensitive redirect path that surfaces as p99 spikes with no corresponding
+              # load, which is one of the most commonly misdiagnosed symptoms in
+              # Kubernetes. Requests already guarantee a share under contention, and that
+              # is what actually protects neighbours.
+              #
+              # Memory IS limited, because memory is not compressible: there is no
+              # throttle for it, only the OOM killer, so an unbounded leak takes the whole
+              # node down instead of one pod. Chaos experiment 4 depends on exactly this
+              # boundary existing.
+
+          startupProbe:
+            # Separating startup from liveness is what lets liveness stay aggressive.
+            # Folded together, the liveness probe would need a failureThreshold large
+            # enough to cover the slowest cold start, and would then take just as long to
+            # notice a genuinely wedged process later.
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 15
+            timeoutSeconds: 2
+
+          livenessProbe:
+            # /healthz, which by design does NOT touch DynamoDB. If liveness checked the
+            # dependency, chaos experiment 3 (revoke the IAM policy) would restart every
+            # pod in a loop and convert a dependency outage into a self-inflicted
+            # CrashLoopBackOff. Pinned by a unit test as well as documented here.
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          readinessProbe:
+            # /readyz, which does check the store. A pod that cannot reach DynamoDB is
+            # pulled out of the Service and stops taking traffic, while staying alive so
+            # it can recover when the dependency does.
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          lifecycle:
+            preStop:
+              # The gap this closes: endpoint removal and SIGTERM are dispatched
+              # concurrently, so without a pause the process begins shutting down while
+              # kube-proxy and Traefik are still routing to it, and in-flight requests get
+              # connection-refused. Sleeping first lets the removal propagate, then the
+              # graceful shutdown runs against a pod nothing is sending to any more.
+              #
+              # `sleep` as a native lifecycle action rather than `exec: ["sleep", "5"]`:
+              # the image is distroless and contains no shell and no sleep binary, so the
+              # exec form -- the one every tutorial shows -- would fail on every single
+              # pod termination. Needs Kubernetes >= 1.32, which is below both the k3d
+              # cluster and the EKS version this targets.
+              sleep:
+                seconds: 5
