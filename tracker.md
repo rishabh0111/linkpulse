@@ -8,7 +8,7 @@ of Work.
 
 **Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
 
-The repository is on GitHub and CI has run three times. Seven of the eight jobs have passed on every run. `e2e` has failed twice for two unrelated reasons, both now fixed and one of them confirmed fixed by a run: the disk exhaustion is gone (14 GB free became 46 GB, and the monitoring stack it used to die on now deploys, is proven observing, and passes TLS and the Sealed Secrets round trip), and the k6 output directory that replaced it is fixed but unexercised. The README's pipeline claim stands on seven green jobs until e2e finishes one.
+The repository is on GitHub and CI has run four times. Seven of the eight jobs have passed on every run. `e2e` has failed on two distinct causes, both now fixed: the disk exhaustion is gone and confirmed gone by a run (14 GB free became 46 GB, and the monitoring stack it used to die on now deploys, is proven observing, and passes TLS and the Sealed Secrets round trip), and the k6 summary export that replaced it is fixed and verified locally but not yet in CI. The README's pipeline claim stands on seven green jobs until e2e finishes one.
 
 ---
 
@@ -1634,7 +1634,7 @@ command in the runbooks is a task that exists in `mise.toml` today.
   was proven observing, and passed TLS and the Sealed Secrets round trip. 35 GB was still free
   after it. The job also failed in 13 minutes rather than 47.
 
-  **Run 3 — `load-testing/k6/output/` does not exist in a fresh clone.** The load baseline
+  **Runs 3 and 4 — the k6 summary export, for two stacked reasons.** The load baseline
   itself was entirely green: 5284 checks, none failed, 0 dropped iterations, redirect
   p95 = 9.02 ms and p99 = 14.17 ms against thresholds of 150 and 250, graphql p95 = 20.41 ms
   against 500. What failed was `k6-summary.py`, with `FileNotFoundError` on the export k6 was
@@ -1645,10 +1645,27 @@ command in the runbooks is a task that exists in `mise.toml` today.
   `/.kube` problem, and fixed the same way the repository already solved it: the directory is
   tracked via `.gitkeep`, with the exports still ignored. `k6-summary.py` now also reports a
   missing file as a diagnosis (exit 2) rather than a traceback, which covers experiment 1 and
-  the `k6-throttle` task as well — both write to the same directory. **Verified here, not in
-  CI:** the ignore rules (an export is still ignored, the `.gitkeep` is not), and all three of
-  the script's exits — 0 on the real numbers above, 1 on a failed threshold, 2 on a missing
-  file. That e2e completes needs run 4.
+  the `k6-throttle` task as well — both write to the same directory.
+
+  Run 4 failed at the same step, and the improved message paid for itself immediately: the
+  error was no longer `no such file` but **`permission denied`**. The `grafana/k6` image runs
+  as its own unprivileged `k6` user (uid 12345), which exists only inside the container; a
+  Linux bind mount keeps the host's ownership, so that user cannot write into a directory
+  owned by the runner. Docker Desktop does not enforce the mapping the same way, which is why
+  this worked on my machine and failed in CI — the same shape of bug as the write-sharding
+  default, where the local environment was the more forgiving one. Fixed by running the
+  service as `user: "0:0"`, which is what `kubectl` and `ops` already do in the same file and
+  for the same class of reason; the compose comment records it. The cost is root-owned
+  exports on Linux hosts, which are gitignored scratch that `clean` removes.
+
+  **Verified here, not in CI:** the ignore rules (an export is still ignored, the `.gitkeep`
+  is not); all three of `k6-summary.py`'s exits — 0 on the real numbers above, 1 on a failed
+  threshold, 2 on a missing file; and the permission fix itself, reproduced directly against
+  `grafana/k6:2.2.0` — uid 12345 is denied on a host-owned directory, `0:0` writes. (The first
+  attempt to reproduce it on this Fedora host was confounded by SELinux denying the container
+  even read access, which is a property of this machine and not of CI; the clean test isolates
+  the uid.) That e2e completes end to end still needs a green run — the chaos experiments and
+  the backup/restore step have never executed in CI.
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so
   a collision fails loudly at `compose up` rather than misrouting, but it is the one value in

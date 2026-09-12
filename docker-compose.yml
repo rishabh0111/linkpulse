@@ -360,6 +360,22 @@ services:
     profiles: [tools]
     networks: [linkpulse]
     working_dir: /repo
+    # Root, for the same class of reason as `kubectl` above. The image runs as its own
+    # unprivileged `k6` user, whose uid exists only inside the container; on a Linux host a
+    # bind mount keeps the host's ownership, so that user cannot write into
+    # load-testing/k6/output/ and --summary-export fails with "permission denied". Docker
+    # Desktop hides this -- it does not enforce the mapping the same way -- so it works on
+    # Windows and fails in CI, which is exactly how it was found.
+    #
+    # k6 does not treat that failure as fatal: it logs "failed to handle the end-of-test
+    # summary" and exits 0, so the next command reads a file that is not there. scripts/
+    # k6-summary.py says so explicitly now, but not writing the file at all is the fix.
+    #
+    # The cost is that the exports land root-owned on a Linux host, the same as everything
+    # `kubectl` and `ops` write. They are gitignored scratch and `mise run clean` removes
+    # them; on a host with SELinux enforcing, note that the repo needs to be labelled for
+    # container access before any of these services can read it at all.
+    user: "0:0"
     volumes:
       - .:/repo
     environment:
