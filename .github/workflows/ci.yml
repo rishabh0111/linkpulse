@@ -284,6 +284,46 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Reclaim disk before building a cluster
+        # The three k3d nodes are containers sharing the runner's single filesystem, so
+        # every image containerd pulls into each of them lands on the same disk -- and it
+        # pulls per node, not once. The monitoring stack is eight images with a ~1 GB
+        # Grafana renderer among them, which is that gigabyte three times over, on top of
+        # cert-manager, Sealed Secrets, the k3s addons and LocalStack.
+        #
+        # The first run of this job on a hosted runner filled the disk. kubelet crossed its
+        # ephemeral-storage eviction threshold (10% of nodefs) on all three nodes at once,
+        # evicted the workload, tainted every node disk-pressure, and the replacement pods
+        # then had nowhere left to schedule -- so the job spent forty minutes in `rollout
+        # status` waiting for deployments that could never come up. Nothing in the stack was
+        # at fault: the runner image ships ~25 GB of toolchains this job never opens.
+        #
+        # Nothing removed here is used below. The job runs entirely through `docker compose`
+        # and uses no setup-* action, so the hosted tool cache is dead weight too; the prune
+        # runs before anything is pulled, so it can only remove images the runner image
+        # shipped with.
+        run: |
+          echo "Before:"
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/.ghcup /opt/hostedtoolcache \
+                      /usr/local/share/powershell /usr/share/swift || true
+          docker image prune -af || true
+          echo "After:"
+          df -h /
+
+          # Fail here, loudly, rather than forty minutes later as an eviction. If the runner
+          # image changes shape and this stops reclaiming enough, that is a one-line red
+          # build with the number in it, not an archaeology exercise in pod events.
+          avail_kib=$(df --output=avail -k / | tail -1 | tr -d ' ')
+          echo "Free on /: $((avail_kib / 1024 / 1024)) GiB"
+          if [ "$avail_kib" -lt 20971520 ]; then
+            echo "::error::Only $((avail_kib / 1024 / 1024)) GiB free on /. The three-node" \
+                 "cluster plus the monitoring stack needs ~20 GiB of headroom; kubelet will" \
+                 "evict under this and the nodes will taint disk-pressure."
+            exit 1
+          fi
+
       - name: Start LocalStack
         run: |
           docker compose up -d --wait localstack
@@ -487,3 +527,12 @@ jobs:
           docker compose run --rm kubectl describe pods -n linkpulse || true
           docker compose run --rm kubectl logs -n linkpulse -l app.kubernetes.io/name=linkpulse --tail=200 --prefix || true
           docker compose run --rm kubectl get events -n linkpulse --sort-by=.lastTimestamp || true
+
+          # Disk, because the first failure of this job was disk and the evidence for that
+          # was buried in an eviction message. `df` on the host covers all three nodes --
+          # they are containers on this filesystem -- and the node conditions say whether
+          # kubelet agreed.
+          df -h / || true
+          docker system df || true
+          docker compose run --rm kubectl get nodes \
+            -o custom-columns=NODE:.metadata.name,CONDITIONS:.status.conditions[*].type,TAINTS:.spec.taints[*].key || true

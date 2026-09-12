@@ -6,7 +6,9 @@ versus merely written. Updated at the end of each phase.
 Plan of record: `../plan/linkpulse-plan.md`. Phase numbering follows the plan's §7 Order
 of Work.
 
-**Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining work and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
+**Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
+
+The repository is on GitHub and CI has run. Seven of the eight jobs pass; `e2e` filled the runner's disk deploying the monitoring stack and has a fix in this commit that no run has exercised yet. Until one has, the README's pipeline claim stands on seven green jobs, not eight.
 
 ---
 
@@ -519,9 +521,10 @@ The image is built locally and side-loaded for e2e rather than pulled from ghcr.
 job runs on a fork's pull request where no image was pushed — and so it does not have to
 wait for the build job.
 
-**Not verified.** There is no git remote and no commit yet, so this workflow has never run
-in Actions. Every command inside it was executed locally, but the YAML, the action versions
-and the ghcr.io push path are unexercised until the repo is pushed.
+**Since verified, partly.** The workflow has now run in Actions. Every job but `e2e` passed
+on the first attempt — the action versions and the ghcr.io push path are exercised. `e2e`
+failed on runner disk rather than on anything it was testing; see the loose end at the end of
+this file for the diagnosis and the fix.
 
 ### Bugs and findings
 
@@ -1510,10 +1513,12 @@ command in the runbooks is a task that exists in `mise.toml` today.
 - ~~`docs/architecture.md` does not exist yet.~~ **Closed in phase 11**, with
   `docs/runbook.md` (every anchor the rules cite), `docs/burst-runbook.md`,
   `docs/postmortem.md`, `docs/case-study.md`, `README.md` and the vpc module README.
-- **The repository has no commits and no remote.** Every "verified" above came from
-  scratch-clone pushes to Gitea; the first real commit, the GitHub remote, the first CI
-  run and the `OWNER` substitutions are the operator's (item 2 of the burst runbook's
-  checklist). Nothing in the tree is committed on anyone's behalf.
+- ~~**The repository has no commits and no remote.**~~ **Closed.** The tree is now on
+  GitHub at `rishabh0111/linkpulse`, fifteen commits, and CI has run. What remains of this
+  item is the `OWNER` substitutions in `gitops/argocd/{apps,bootstrap}/aws/kustomization.yaml`
+  — five placeholders, still unsubstituted because the aws overlay has nothing to sync to
+  until the burst. The `IMAGE_NAME` in CI needed no edit: it derives from
+  `github.repository`, and the first run confirmed it resolved to `rishabh0111/linkpulse`.
 - **The `mise run` path is unverified on this host** — mise is not installed here. Every
   underlying command was run directly and passes, including the whole phase-5 cluster
   sequence, and the Makefile was confirmed to parse and forward all twenty-odd targets using
@@ -1601,11 +1606,32 @@ command in the runbooks is a task that exists in `mise.toml` today.
   and a real registry to have pushed to — and an unverifiable job that commits to `main`
   is a worse thing to ship than a documented gap. First item once the repository is on
   GitHub.
-- **`.github/workflows/ci.yml` has never run.** There is no git remote and no commit yet, so
-  the pipeline is unexercised as YAML: the action versions, the ghcr.io login and push, the
-  multi-arch build and the cache are all unproven. Every *command* inside it was run locally
-  first, and the e2e job is a transcription of the sequence verified above — but that is a
-  weaker claim than a green run, and the README must not say otherwise until there is one.
+- **`.github/workflows/ci.yml` has run, and the e2e job failed on runner disk — fixed, not
+  yet re-run.** Two runs so far; in both, all seven other jobs passed (app, terraform static,
+  terraform-against-LocalStack apply/idempotent-plan/destroy, manifests, scripts, the Trivy
+  gate, and the ghcr.io build-and-push), which closes the action versions, the registry login
+  and the multi-arch build as unproven. The e2e job got as far as a verified-TLS smoke test
+  through the ingress and then died deploying the monitoring stack.
+
+  The cause was not the stack. The three k3d nodes are containers on the runner's one
+  filesystem, so containerd pulls every image once *per node* — eight monitoring images with
+  a ~1 GB Grafana renderer among them, on top of cert-manager, Sealed Secrets, the k3s addons
+  and LocalStack. kubelet crossed its ephemeral-storage eviction threshold (10% of nodefs;
+  3.84 GB, against 2.69 GB available) on all three nodes, evicted the workload — including
+  the two healthy `linkpulse` pods — tainted every node `disk-pressure`, and the replacements
+  then failed to schedule with `0/3 nodes are available: 3 node(s) had untolerated taint(s)`.
+  The job spent forty minutes in `rollout status` waiting for deployments that could not come
+  up, which is the second bug: the failure was slow and the evidence was an eviction message
+  rather than anything about disk.
+
+  This is the loose end below about `dev` being image-heavy, arriving on a machine with less
+  slack than mine. Both halves are fixed in the e2e job: a reclaim step before the cluster is
+  built, dropping the ~25 GB of toolchains the job never opens (Android SDK, hosted tool
+  cache, .NET, GHC/ghcup, Swift, PowerShell) plus the runner's preinstalled images, and then
+  a hard assertion of 20 GiB free that fails in seconds with the number in it. `df`, `docker
+  system df` and the node conditions and taints are now in the `always()` diagnostics, so the
+  next disk wall is readable off the log. **Verified only as YAML and shell** — `bash -n` and
+  the rendered step, here. The claim that e2e is green needs the next run.
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so
   a collision fails loudly at `compose up` rather than misrouting, but it is the one value in

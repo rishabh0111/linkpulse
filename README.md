@@ -81,7 +81,9 @@ Everything above is verified on one machine (Windows 11, Docker Desktop), throug
 exact commands in `mise.toml` — but not yet through `mise run` itself on a second
 machine, and **nothing has touched a real AWS account**: the `aws` and `aws-burst`
 environments, the load-balancer controller, the cost report and the teardown are
-validated and unexecuted. CI has never run because the repository has no remote yet.
+validated and unexecuted. CI now runs on every push: seven of its eight jobs are green,
+and the end-to-end job — which builds a three-node cluster on the runner — is fixed for a
+disk exhaustion it hit on its first two runs but has not yet passed.
 `tracker.md` § Known loose ends is the complete, current list; the README will not claim
 more than it does.
 
