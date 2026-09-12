@@ -1,0 +1,8 @@
+# What ArgoCD deploys as the `sealed-secrets` Application. One directory today; the
+# indirection exists so that install/ stays the vendored-plus-patches layer and anything
+# added later (a ServiceMonitor-equivalent scrape annotation, a key-rotation CronJob)
+# lands beside it rather than inside it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - install

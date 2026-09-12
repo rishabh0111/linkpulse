@@ -1,0 +1,45 @@
+# Values for the AWS Load Balancer Controller Helm chart, EKS only.
+#
+# This is the one platform component that is Helm rather than kustomize, and the one
+# that is not deployed by ArgoCD. Both for the same reason: the controller's manifest
+# install requires cert-manager to issue its webhook certificate *and* a cluster-specific
+# set of values (cluster name, VPC, IAM role ARN) that only exist after `terraform apply`
+# on envs/aws-burst. The chart generates its own webhook certificate and takes the values
+# as flags, so `mise run burst-alb-controller` is one Helm command with the flags pasted
+# from `terraform output alb_controller_helm_args`. Making ArgoCD own it would mean
+# committing the account-specific ARN and VPC id, which the rest of the repository
+# carefully does not.
+#
+# Chart 3.5.0 / app v3.5.0, matching the vendored IAM policy in envs/aws-burst. The two
+# move together: a newer controller may call an API the older policy does not grant, and
+# the failure is a 403 in the controller's log rather than anything on the Ingress.
+#
+# Unverified: no EKS cluster has existed yet.
+
+# One replica. The default is two for availability; on a two-node burst cluster that
+# reserves a controller slot on every node for a component that is idle between Ingress
+# changes. If the node it is on is the one experiment 5 kills, the ALB keeps serving --
+# the controller reconciles, it does not proxy.
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations:
+    # Overridden on the command line from terraform output; the placeholder is here so
+    # the file is honest about what the chart needs.
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/linkpulse-burst-alb-controller
+
+# Set by --set from terraform output: clusterName, region, vpcId.
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    memory: 256Mi
+
+# The controller can also act on Service type=LoadBalancer (NLBs). Nothing here uses that,
+# and an accidental one is $16/month, so it is left at the default: off unless the Service
+# carries the controller's class annotation.
+enableServiceMutatorWebhook: false

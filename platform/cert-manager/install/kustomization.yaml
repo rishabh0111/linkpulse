@@ -1,0 +1,72 @@
+# cert-manager: the thing that turns "TLS via a local CA" from a script that runs openssl
+# on a laptop into a property of the cluster.
+#
+# The plan said mkcert. mkcert generates a CA on the host and `mkcert -install` writes it
+# into the operating system's trust store -- which is exactly the class of host mutation
+# this project claims not to need (the same reason the ingress uses localtest.me instead of
+# a hosts-file edit). It also puts the CA private key on a laptop, per machine, with the
+# certificates minted by a script that has to be re-run whenever a hostname is added.
+#
+# In-cluster, the CA is a Secret that never leaves the cluster, every Ingress that wants a
+# certificate asks for one with an annotation, renewal is automatic, and the whole thing
+# is declared in git and deployed by ArgoCD like everything else. Trusting the CA on the
+# host stays optional: `mise run tls-ca` exports the public certificate, and the checks
+# that prove TLS works (scripts/tls-check.py, smoke.py --ca-cert) pass it explicitly
+# rather than relying on a trust store.
+#
+# Vendored, like ArgoCD's install manifest and for the same reason: a byte-for-byte copy
+# is reproducible with no network at all, whatever happens to the release URL. The file
+# under upstream/ is never hand-edited; every change is a patch below.
+#
+# Not Helm. The chart would be the second version to pin (chart and app versions move
+# independently) and kustomize is what everything else here uses.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - upstream/cert-manager-v1.21.1.yaml
+
+patches:
+  # The upstream namespace carries no Pod Security labels. All three workloads already
+  # run non-root with every capability dropped, a read-only root filesystem and the
+  # RuntimeDefault seccomp profile, so `restricted` costs nothing and means a future
+  # upstream change that loosened one of those would be refused by the API server rather
+  # than noticed in a review.
+  - target:
+      kind: Namespace
+      name: cert-manager
+    patch: |
+      - op: add
+        path: /metadata/labels
+        value:
+          app.kubernetes.io/part-of: linkpulse
+          pod-security.kubernetes.io/enforce: restricted
+          pod-security.kubernetes.io/audit: restricted
+          pod-security.kubernetes.io/warn: restricted
+
+  # Upstream sets no resources at all. Requests, so the scheduler places these against
+  # real numbers on a three-node cluster with limits everywhere else; a memory limit,
+  # because an unbounded controller is the one that gets the node into memory pressure
+  # during chaos experiment 5 and confuses the result. No CPU limit, matching the rest of
+  # the cluster: CPU throttling of a controller turns into slow certificate issuance,
+  # which looks like a cert-manager bug and is not one.
+  - target:
+      kind: Deployment
+      name: cert-manager
+    patch: &resources |
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+  - target:
+      kind: Deployment
+      name: cert-manager-cainjector
+    patch: *resources
+  - target:
+      kind: Deployment
+      name: cert-manager-webhook
+    patch: *resources

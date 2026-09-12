@@ -1,0 +1,80 @@
+# The local CA, in three objects. Read top to bottom: a bootstrap issuer that signs
+# anything, one certificate signed by it -- the CA itself -- and an issuer backed by that
+# certificate, which is what every Ingress in the cluster then asks for.
+#
+# The chain is the point. A single self-signed certificate per hostname (what a bare
+# `selfSigned` issuer on each Ingress would produce) can never be trusted by anything
+# without importing every leaf individually; one CA means importing one certificate
+# makes every current and future hostname green, and not importing it changes nothing
+# about whether TLS works -- the checks pass the CA explicitly.
+#
+# These wait for wave 1 because the CRDs they instantiate are created by the install in
+# wave 0, and the webhook that validates them has to be answering before the API server
+# will accept them. SkipDryRunOnMissingResource is for ArgoCD's dry run, which happens
+# BEFORE wave 0 has created the CRDs on the very first sync and would otherwise fail with
+# "the server could not find the requested resource" for kinds that are about to exist.
+
+# ---------------------------------------------------------------------------------------
+# 1. Bootstrap: an issuer that signs with the request's own key. Used exactly once.
+# ---------------------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selfSigned: {}
+---
+# ---------------------------------------------------------------------------------------
+# 2. The CA certificate. Lives in cert-manager's namespace because a CA issuer can only
+#    read Secrets there -- which is also what keeps the private key out of reach of every
+#    other namespace.
+# ---------------------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: linkpulse-ca
+  namespace: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  isCA: true
+  commonName: LinkPulse Local CA
+  subject:
+    organizations: [linkpulse]
+  secretName: linkpulse-ca
+  # Five years, renewed at 80% of that. A rolling CA on a demo cluster would mean every
+  # imported trust goes stale; a hundred-year one would mean the expiry check in
+  # scripts/tls-check.py never exercises anything. Long enough to be forgotten, short
+  # enough to be real.
+  duration: 43800h
+  privateKey:
+    # ECDSA P-256: smaller certificates, faster handshakes, and no reason to prefer RSA
+    # for a CA that nothing outside this cluster will ever validate against a legacy stack.
+    algorithm: ECDSA
+    size: 256
+    # A CA whose key changed on every renewal would invalidate every trust import the
+    # moment it rolled. Never rotate the key for the CA; the leaves rotate theirs.
+    rotationPolicy: Never
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# ---------------------------------------------------------------------------------------
+# 3. The issuer everything uses: `cert-manager.io/cluster-issuer: linkpulse-ca` on an
+#    Ingress with a `tls:` block is all a workload has to say to get a certificate.
+# ---------------------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: linkpulse-ca
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  ca:
+    secretName: linkpulse-ca

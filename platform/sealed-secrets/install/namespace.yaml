@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sealed-secrets
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    app.kubernetes.io/part-of: linkpulse
+    # The controller runs as uid 1001, non-root, capabilities dropped, read-only root,
+    # seccomp RuntimeDefault -- upstream already satisfies `restricted`, so enforce it.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

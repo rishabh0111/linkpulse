@@ -1,0 +1,13 @@
+# What ArgoCD deploys as the `cert-manager` Application: the install and the issuers as
+# one unit, ordered by the sync-wave annotations on the issuer objects (wave 1, after the
+# install's wave 0 is healthy -- which for the webhook Deployment means it is answering).
+#
+# Kubectl cannot apply this directory in one go on a fresh cluster, because there are no
+# waves outside ArgoCD: the CRDs and the objects that instantiate them would arrive in
+# the same request. That is why `mise run platform-apply` applies install/ and issuers/
+# as two steps, and why both remain separately renderable.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - install
+  - issuers

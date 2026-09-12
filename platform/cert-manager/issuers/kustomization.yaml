@@ -1,0 +1,10 @@
+# The CA and its issuers, separate from the install so the two can be applied in order:
+# the issuers instantiate CRDs the install creates and are validated by a webhook the
+# install starts, so `kubectl apply -k` of both in one shot fails on a fresh cluster.
+# `mise run platform-apply` applies install, waits, then applies this. ArgoCD orders the
+# same two steps with sync waves inside one Application (see platform/cert-manager/
+# kustomization.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ca.yaml
