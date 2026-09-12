@@ -78,6 +78,15 @@ Experiment 4's harness found the first by querying the expression before injecti
 anything; experiment 5's first run found the second by holding the deployment at one
 replica for five minutes with no alert. `docs/postmortem.md` is the write-up.
 
+**An experiment can be dead in the same way a rule can.** Experiment 4 asserted the
+CrashLoopBackOff alert by checking for it after each OOM-killed container had restarted —
+by which point the waiting reason the rule depends on had already cleared. On my machine it
+passed, because the alert had not resolved yet at the moment of the check. The first time CI
+ran it, it failed six kills out of six, with backoff reaching 177 s: a rule firing correctly,
+and a harness looking at the wrong moment. It now watches inside the backoff gap, while the
+condition is true. The table above is from the earlier run; the numbers are real, the
+observation method behind the fifth-kill figure was not sound.
+
 **LocalStack does not enforce provisioned capacity**, and a compose comment said it did.
 Measured: 78 write units per second against a 20-unit table, zero throttles. Experiment 1
 now injects `ProvisionedThroughputExceededException` through LocalStack's runtime config

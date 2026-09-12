@@ -289,7 +289,11 @@ throughout; the HPA keeps the count.
 
 **Observed.** [chaos-4](evidence/chaos-4/timeline.md): five OOM kills on one pod, the
 alert firing after the fifth (the 80 s backoff was the first to outlast the minute), the
-other replica answering every check.
+other replica answering every check. That run looked for the alert *after* each restart,
+when the waiting reason had already cleared, and caught it only because it had not yet
+resolved; CI missed that window six times running. The harness now watches inside the
+backoff gap, where the rule's condition actually holds. Expect the kill count to be the
+same or one lower when the evidence is regenerated; the diagnosis above does not change.
 
 ---
 

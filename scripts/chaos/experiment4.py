@@ -14,8 +14,11 @@ that the OTHER replica keeps serving: a redirect through the ingress is checked 
 stage). The sequence per kill: leak to ~90% of the limit and hold there long enough for
 LinkpulseMemoryNearLimit to fire, then push over. The first kill is enough for
 LinkpulseOOMKilled; CrashLoopBackOff needs the kubelet's backoff to reach the alert's
-`for: 1m`, which takes four kills (10s, 20s, 40s, 80s), so the leak is repeated on each
-restarted container until the waiting reason has held for a minute.
+`for: 1m`, which takes four or five kills (10s, 20s, 40s, 80s, 160s nominal; slower on a
+loaded runner), so the leak is repeated on each restarted container until the waiting reason
+has held for a minute. The alert is watched inside each backoff gap, while its condition is
+true -- not after the restart, when it has already stopped being true (see
+wait_crashloop_in_backoff for how that went wrong).
 
     mise run chaos-4
 """
@@ -124,9 +127,40 @@ class Forward:
             return None
 
 
-def kill_once(pod: str, run: c.Run, hold_for_alert: bool) -> None:
+def wait_crashloop_in_backoff(pod: str, run: c.Run, before: float, timeout: float = 240) -> bool:
+    """Watch for LinkpulseCrashLooping *during* the backoff gap, and say whether it fired.
+
+    The rule is `kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1`
+    with `for: 1m`, so its condition is true only while the container is waiting to be
+    restarted. Looking after the restart -- which is what this experiment used to do -- asks
+    Prometheus about a state that has already ended, and can only succeed if the alert has
+    not resolved yet. It passed locally on exactly that residual window (the committed
+    evidence shows `waiting reason None` and `ok: LinkpulseCrashLooping firing` in the same
+    second) and failed six times out of six in CI, which is the same bug as the two rules
+    phase 9 found that could never fire: the experiment was not observing what it claimed.
+
+    So the gap itself is the observation window. This returns as soon as the alert fires, and
+    gives up as soon as the container restarts -- that gap was shorter than the rule's
+    minute, and the caller escalates by killing again.
+    """
+    t0 = c.now()
+    while c.now() - t0 < timeout:
+        if c.alert_state("LinkpulseCrashLooping", pod=pod) is not None:
+            run.mark("LinkpulseCrashLooping firing", f"in the backoff gap, after {round(c.now() - t0)}s")
+            return True
+        if restarts_of(pod) >= before + 1:
+            run.mark("the backoff gap closed before the rule's `for: 1m` elapsed",
+                     f"{round(c.now() - t0)}s -- escalating with another kill")
+            return False
+        time.sleep(3)
+    return False
+
+
+def kill_once(pod: str, run: c.Run, hold_for_alert: bool, during_backoff=None) -> None:
     """Leak the target container past its limit once. With hold_for_alert, pause at ~90% so
-    LinkpulseMemoryNearLimit gets its minute."""
+    LinkpulseMemoryNearLimit gets its minute. during_backoff, if given, is called with the
+    pre-kill restart count while the container is down, which is the only time the
+    CrashLoopBackOff rule's condition is true."""
     before = restarts_of(pod)
     c.wait_for(run, f"{pod} container running", lambda: container_running(pod), timeout=180, interval=3)
     with Forward(pod) as fwd:
@@ -139,6 +173,8 @@ def kill_once(pod: str, run: c.Run, hold_for_alert: bool) -> None:
             c.wait_for(run, "LinkpulseMemoryNearLimit firing", lambda: c.alert_state("LinkpulseMemoryNearLimit", pod=pod) is not None, timeout=180)
         run.mark("pushing over the limit: +40 MB")
         fwd.leak(40)
+    if during_backoff is not None:
+        during_backoff(before)
     c.wait_for(run, f"{pod} restarted (restart count {before:.0f} -> {before + 1:.0f})",
                lambda: restarts_of(pod) >= before + 1, timeout=180, interval=3)
     reason = last_termination(pod)
@@ -179,22 +215,22 @@ def during() -> None:
     c.check(RUN, "the other replica is serving through the ingress", redirect_serves())
 
     # Into CrashLoopBackOff: keep killing the restarted container until the kubelet's
-    # backoff is long enough for the alert's `for: 1m` to elapse.
+    # backoff gap is longer than the alert's `for: 1m`. The alert is watched inside each gap
+    # (see wait_crashloop_in_backoff) rather than after the restart, so what is asserted is
+    # that the rule fired while its condition held -- not that it had not yet resolved by the
+    # time we looked.
     kills = 1
-    while kills < 6:
-        kill_once(target, RUN, hold_for_alert=False)
+    fired = False
+    while kills < 8 and not fired:
+        def watch(before: float) -> None:
+            nonlocal fired
+            fired = wait_crashloop_in_backoff(target, RUN, before)
+
+        kill_once(target, RUN, hold_for_alert=False, during_backoff=watch)
         kills += 1
-        reason = waiting_reason(target)
-        RUN.mark(f"after kill {kills}: waiting reason {reason}")
-        if c.alert_state("LinkpulseCrashLooping", pod=target) is not None:
-            break
-        try:
-            c.wait_for(RUN, "LinkpulseCrashLooping firing", lambda: c.alert_state("LinkpulseCrashLooping", pod=target) is not None,
-                       timeout=45, interval=5)
-            break
-        except c.ChaosError:
-            continue  # backoff too short yet; kill again
-    c.check(RUN, "LinkpulseCrashLooping firing", c.alert_state("LinkpulseCrashLooping", pod=target) is not None)
+        RUN.mark(f"after kill {kills}: crashloop alert {'firing' if fired else 'not yet'}",
+                 f"waiting reason now {waiting_reason(target)}")
+    c.check(RUN, "LinkpulseCrashLooping fired while the container was in backoff", fired)
     RUN.fact("killsToCrashLoopAlert", kills)
     RUN.fact("secondsToCrashLoopAlert", round(c.now() - t0))
     RUN.fact("restartsAtPeak", restarts_of(target))

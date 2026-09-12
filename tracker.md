@@ -8,7 +8,7 @@ of Work.
 
 **Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
 
-The repository is on GitHub and CI has run five times. Seven of the eight jobs have passed on every run. `e2e` has failed on three distinct causes, each hidden behind the last and each now fixed: runner disk (confirmed fixed by a run), the k6 summary export (fixed, verified locally), and a silent `k3d image import` failure (fixed, not yet exercised). A theme runs through the last two: both were tools reporting success after failing, found only because the step after them broke. The README's pipeline claim stands on seven green jobs until e2e finishes one.
+The repository is on GitHub and CI has run six times. Seven of the eight jobs have passed on every run. `e2e` has failed on four distinct causes, each hidden behind the last. Three are fixed and confirmed by run 6 (runner disk, the k6 summary export, a silent `k3d image import` failure), and run 6 got through the load baseline and chaos 3 and 1 for the first time. The fourth is a real defect in experiment 4 itself: it looked for the CrashLoopBackOff alert after the condition had ended. Fixed and unit-tested, not yet run against a cluster. The README's pipeline claim stands on seven green jobs until e2e finishes one.
 
 ---
 
@@ -1695,6 +1695,44 @@ command in the runbooks is a task that exists in `mise.toml` today.
   assertion will iterate match the container names k3d used in the run 5 log. **Not verified:**
   the assertion against a real cluster — this host cannot run the compose flow, because SELinux
   is enforcing and the repo is not labelled for container access.
+
+  **Run 6 — the first three fixes held; experiment 4 was observing the wrong moment.** The
+  import assertion printed `linkpulse:local present` on all three nodes, the load baseline
+  and chaos 3 and 1 passed for the first time, and then chaos 4 failed. It OOM-killed its
+  target six times, confirmed `OOMKilled` every time, watched the kubelet's backoff escalate
+  (9 s, 24 s, 42 s, 57 s, 90 s, 177 s), and never saw `LinkpulseCrashLooping`.
+
+  The rule was fine. The harness wasn't. `kill_once` ended by waiting for the container to
+  restart, which is to say it waited *through* the backoff gap, and only then did the loop
+  ask whether the alert was firing. But the rule is `kube_pod_container_status_waiting_reason
+  {reason="CrashLoopBackOff"} == 1` with `for: 1m`: its condition is true only while the
+  container is waiting. After the restart it is false, and the alert is on its way to
+  resolved. The committed local evidence shows it passing on exactly that residual window —
+  `after kill 5: waiting reason None` and `ok: LinkpulseCrashLooping firing` at the same
+  second, 497 s. Locally one check happened to land before resolution; in CI none of six did,
+  even with a 177 s gap that was nearly three times the rule's minute.
+
+  This is phase 9's dead-rules finding one level up. Those were rules that could not fire.
+  This was an experiment that could not reliably *see* a rule fire, and passed anyway. The
+  module docstring had the intent right ("until the waiting reason has held for a minute");
+  the code checked after the waiting reason was gone.
+
+  Fixed by making the gap the observation window. `wait_crashloop_in_backoff` runs inside
+  `kill_once` between the push over the limit and the wait for restart, returns `True` as
+  soon as the alert fires, and returns `False` as soon as the container restarts (that gap
+  was shorter than the minute, so kill again). The loop cap went from 6 kills to 8, since a
+  loaded runner stretches the backoff. The assertion is renamed to what it now proves:
+  *fired while the container was in backoff*. The runbook's "Observed" note and the case
+  study both say that the committed chaos-4 figures come from the earlier method.
+
+  **Verified here:** `py_compile`, plus two stubbed tests in the scratchpad (the cluster
+  calls replaced, the real module imported). `wait_crashloop_in_backoff` returns `True` when
+  the alert fires inside the gap, `False` when the restart comes first, `False` on timeout,
+  and `True` if the alert is already firing on entry. The `during()` loop stops on the kill
+  the alert fires on (2, 5 and 8 checked), gives up at 8 with the assertion `False`, and the
+  code after the loop still runs. **Not verified:** against a cluster, and the chaos-4
+  evidence has not been regenerated. That needs the author's machine, or run 7's uploaded
+  artifact, and `killsToCrashLoopAlert` / `secondsToCrashLoopAlert` will likely move.
 
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so
