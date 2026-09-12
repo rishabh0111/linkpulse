@@ -486,8 +486,14 @@ jobs:
         run: |
           docker compose run --rm -T ops python3 scripts/chaos/experiment3.py pre
           docker compose pause localstack
-          docker compose run --rm -T ops python3 scripts/chaos/experiment3.py during || docker compose unpause localstack
+          # Recover whether or not the assertions passed, then fail with their exit code.
+          # This used to be `during || unpause`, which under `bash -e` makes the line
+          # succeed whenever the unpause does -- so a failed `during` was cleaned up and
+          # then silently passed. It did not happen here, but nothing would have shown it.
+          rc=0
+          docker compose run --rm -T ops python3 scripts/chaos/experiment3.py during || rc=$?
           docker compose unpause localstack
+          test "$rc" -eq 0 || { echo "::error::experiment 3 'during' failed (exit $rc); localstack was unpaused"; exit "$rc"; }
           docker compose run --rm -T ops python3 scripts/chaos/experiment3.py post
           docker compose run --rm smoke python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb
 
@@ -513,8 +519,12 @@ jobs:
           docker compose run --rm -T ops python3 scripts/chaos/experiment5.py pre
           docker compose run --rm -T ops python3 scripts/chaos/experiment5.py drain
           docker compose run --rm k3d node stop k3d-linkpulse-agent-0
-          docker compose run --rm -T ops python3 scripts/chaos/experiment5.py loss || docker compose run --rm k3d node start k3d-linkpulse-agent-0
+          # Same shape as chaos 3: bring the node back regardless, then fail with the
+          # assertions' exit code rather than the `node start`'s.
+          rc=0
+          docker compose run --rm -T ops python3 scripts/chaos/experiment5.py loss || rc=$?
           docker compose run --rm k3d node start k3d-linkpulse-agent-0
+          test "$rc" -eq 0 || { echo "::error::experiment 5 'loss' failed (exit $rc); agent-0 was restarted"; exit "$rc"; }
           docker compose run --rm -T ops python3 scripts/chaos/experiment5.py post
           docker compose run --rm smoke python3 scripts/observability-check.py --ingress http://k3d-linkpulse-serverlb
 

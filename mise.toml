@@ -290,8 +290,11 @@ run = "docker compose run --rm smoke"
 # putting the script on the host would make a POSIX shell a third prerequisite on Windows
 # — the exact claim this file exists to protect.
 #
-# The one piece of control flow used, `A || B`, behaves identically in sh and in cmd,
-# which is why it is the only one used.
+# Two pieces of control flow are used, both chosen because they read the same in sh and
+# in cmd: `A || B`, where B is a genuine alternative (create if absent, retry once), and
+# `A || (B && exit 1)`, where B is cleanup that must run when A fails *without* turning that
+# failure into a success -- a bare `A || B` takes B's exit status. chaos-3 and chaos-5 had
+# the bare form, and a failed experiment reported as passed.
 # ---------------------------------------------------------------------------------------
 
 [tasks.cluster-up]
@@ -684,9 +687,12 @@ description = "Experiment 3: the datastore goes away (LocalStack paused; the tab
 run = [
   "docker compose run --rm -T ops python3 scripts/chaos/experiment3.py pre",
   "docker compose pause localstack",
-  # `|| unpause`: if the assertions fail, the store must still come back, or the next
-  # thing anyone runs fails for a reason that has nothing to do with it.
-  "docker compose run --rm -T ops python3 scripts/chaos/experiment3.py during || docker compose unpause localstack",
+  # `|| (unpause && exit 1)`: if the assertions fail, the store must still come back, or
+  # the next thing anyone runs fails for a reason that has nothing to do with it -- and the
+  # task must still fail. A bare `|| unpause` did the first and not the second: the line
+  # took the unpause's exit status, so a failed experiment reported success. The parenthesised
+  # form behaves the same in sh (a subshell exiting 1) and in cmd (a group exiting 1).
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment3.py during || (docker compose unpause localstack && exit 1)",
   "docker compose unpause localstack",
   "docker compose run --rm -T ops python3 scripts/chaos/experiment3.py post",
   "mise run mon-check",
@@ -714,8 +720,9 @@ run = [
   "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py pre",
   "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py drain",
   "docker compose run --rm k3d node stop k3d-linkpulse-agent-0",
-  # `|| start`: a failed assertion must not leave the node stopped.
-  "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py loss || docker compose run --rm k3d node start k3d-linkpulse-agent-0",
+  # `|| (start && exit 1)`: a failed assertion must not leave the node stopped, and must
+  # not pass either -- see chaos-3 for why the bare `|| start` did.
+  "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py loss || (docker compose run --rm k3d node start k3d-linkpulse-agent-0 && exit 1)",
   "docker compose run --rm k3d node start k3d-linkpulse-agent-0",
   "docker compose run --rm -T ops python3 scripts/chaos/experiment5.py post",
   "mise run mon-check",

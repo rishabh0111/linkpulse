@@ -1530,7 +1530,10 @@ command in the runbooks is a task that exists in `mise.toml` today.
   `seal-export` write files with `>`; the `-T` on those runs is what keeps the bytes LF)
   and `mise run <task> -- <args>` (`seal`, `restore`, `metered`), which relies on mise
   appending the arguments to the task's command. `scripts/bootstrap.ps1` has been parsed,
-  never run.
+  never run. Since the CI runs, a
+  fourth shape joins them: `A || (B && exit 1)` in `chaos-3` and `chaos-5`, verified in POSIX
+  sh over all four pass/fail combinations but not in cmd — check that a failing `during` or
+  `loss` phase still fails the task there, with the recovery having run.
 - **EKS `kubernetes_version = "1.34"` is still unverified against the API**, though the
   second half of this item is now closed: the k3d cluster is pinned to
   `rancher/k3s:v1.34.5-k3s1` and `.tool-versions` pins kubectl to 1.34.5, so the manifests
@@ -1733,6 +1736,29 @@ command in the runbooks is a task that exists in `mise.toml` today.
   code after the loop still runs. **Not verified:** against a cluster, and the chaos-4
   evidence has not been regenerated. That needs the author's machine, or run 7's uploaded
   artifact, and `killsToCrashLoopAlert` / `secondsToCrashLoopAlert` will likely move.
+
+  **Found while waiting on run 7 — two chaos steps that could not fail.** Reading ahead at the
+  steps no run had reached yet, looking for the same class as k6 and k3d, turned it up in this
+  repository's own YAML. Chaos 3 and chaos 5 each wrapped their assertion phase as
+  `during || docker compose unpause localstack` and `loss || k3d node start agent-0` — in
+  `ci.yml` and in the `chaos-3` / `chaos-5` mise tasks both. The intent, stated in the mise
+  comments, was cleanup: never leave the store paused or the node stopped. The effect was that
+  the line takes the recovery command's exit status, so **a failed experiment was cleaned up and
+  then reported as passed** — `bash -e` and mise's abort-on-failure both see 0. Checked against
+  run 6's log before repeating any claim: chaos 3's `during` there was genuine (only `ok:` lines,
+  no `chaos: FAIL`, and localstack unpaused once, not twice), so the pass stands. It would not
+  have shown the next failure.
+
+  Fixed differently in the two places, because they run under different shells. `ci.yml` is
+  bash: `rc=0; phase || rc=$?; recover; test "$rc" -eq 0 || exit "$rc"`, which fails with the
+  assertion's own code and says so in an `::error::`. mise has to stay cmd-compatible on Windows,
+  where there is no `$?` substitution, so it uses `phase || (recover && exit 1)` — a subshell
+  exiting 1 in sh, a group exiting 1 in cmd. **Verified here:** YAML and TOML parse, `bash -n`
+  on both rewritten steps, and the exit semantics of both idioms directly — the mise form in POSIX
+  `sh` over all four pass/fail combinations (0, 0, 1, 1), the old form reproducing the bug
+  (`false || true` → 0), and the CI form under `bash -e` (recovery runs either way; exits 0 on a
+  pass and with the phase's own code, 3, on a failure). **Not verified:** the cmd half of the mise
+  form, which needs Windows — it joins the existing `A || B` item under the `mise run` loose end.
 
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so
