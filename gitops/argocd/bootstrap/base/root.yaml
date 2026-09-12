@@ -1,0 +1,36 @@
+# The root of the app-of-apps: the single Application a human applies with kubectl. It
+# points at apps/local, and from then on every other Application in the cluster is created,
+# updated and deleted by ArgoCD from git.
+#
+# This file and bootstrap/local/gitea.yaml are the whole of what exists outside GitOps, and the
+# reason is the same for both: they are what ArgoCD needs in order to read git at all.
+# The root app cannot be created by a sync because nothing is syncing yet; the Gitea
+# Service cannot come from the repository because the repository is behind it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # `default` rather than `linkpulse`: the linkpulse AppProject is one of the things this
+  # Application creates, so it cannot also be a member of it.
+  project: default
+  source:
+    repoURL: http://gitea:3000/linkpulse/linkpulse.git
+    targetRevision: main
+    path: gitops/argocd/apps/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

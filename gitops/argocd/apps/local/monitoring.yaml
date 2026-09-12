@@ -1,0 +1,34 @@
+# The monitoring stack, one wave after the application: Prometheus should find something
+# to scrape on its first discovery pass, and an alert like LinkpulseTargetDown should not
+# get its first evaluation against a namespace that does not exist yet.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: linkpulse
+  source:
+    repoURL: http://gitea:3000/linkpulse/linkpulse.git
+    targetRevision: main
+    path: monitoring/overlays/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

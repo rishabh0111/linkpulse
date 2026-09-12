@@ -1,0 +1,9 @@
+# `kubectl apply -k gitops/argocd/bootstrap/local` -- run once, by `mise run argocd-bootstrap`.
+# The root Application plus the one thing it needs that cannot come from git: the route to
+# git (gitea.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - ../base
+  - gitea.yaml

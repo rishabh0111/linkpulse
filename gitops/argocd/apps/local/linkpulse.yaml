@@ -1,0 +1,62 @@
+# The application, as ArgoCD sees it: a path in a repository and a namespace to make look
+# like it. Everything about what gets deployed lives in that path; this file only says
+# where to read and where to write.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: linkpulse
+  namespace: argocd
+  annotations:
+    # Wave 0. The project is -1; monitoring (phase 7) will be 1 so that Prometheus comes up
+    # after there is something to scrape. The waves are what turn "deploy in this order"
+    # from a runbook step into a property of the manifests.
+    argocd.argoproj.io/sync-wave: "0"
+  # Without this finalizer, deleting the Application leaves everything it deployed running
+  # and orphaned. With it, deletion cascades -- which is what "delete the app" means to
+  # anyone who has not read the ArgoCD docs, and so is the behaviour it should have.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: linkpulse
+
+  source:
+    # The Gitea container from docker-compose.yml, reached through the selectorless
+    # Service in bootstrap/local/gitea.yaml. Not GitHub: offline there is no GitHub, and
+    # in CI the bad-deploy experiment pushes a broken commit and reverts it -- something to
+    # do against a throwaway remote, not the repository the pipeline is testing.
+    repoURL: http://gitea:3000/linkpulse/linkpulse.git
+    targetRevision: main
+    path: k8s/manifests/overlays/local
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: linkpulse
+
+  syncPolicy:
+    automated:
+      # prune: a resource removed from git is removed from the cluster. Without it,
+      # deleting a manifest does nothing and the cluster slowly accumulates things git no
+      # longer describes -- the exact drift GitOps exists to prevent.
+      prune: true
+      # selfHeal: a change made with kubectl is reverted on the next reconciliation. This
+      # is the property behind "rollback is a reverted commit, never a manual patch": a
+      # manual patch does not stick, so it cannot become the fix nobody wrote down.
+      selfHeal: true
+    syncOptions:
+      # The Namespace is in the manifests (base/namespace.yaml), so ArgoCD must not also be
+      # asked to create it: CreateNamespace=true would make it an untracked resource that
+      # the Application cannot delete. Stated here as the absence of that option.
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # No ignoreDifferences for spec.replicas, and its absence is deliberate. The Deployment
+  # declares no replicas field, so ArgoCD's three-way diff has nothing to compare against
+  # the HPA's value and reports no drift. Adding an ignore here would paper over the case
+  # where someone puts the field back and the oscillation starts -- better that it shows
+  # up as OutOfSync and gets fixed at the source.

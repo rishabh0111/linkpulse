@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+data:
+  timeout.reconciliation: 60s
+  # Applications are only accepted from the namespace ArgoCD runs in. The default is the
+  # same, restated here so the boundary is visible: an Application resource in the
+  # linkpulse namespace does nothing, by design.
+  application.namespaces: ""
+
+  # Make a child Application's health its own reported health.
+  #
+  # Without this, ArgoCD treats an Application resource as healthy the moment it exists,
+  # so the sync waves on apps/local/*.yaml order only creation: the root app would create
+  # cert-manager (wave -2) and linkpulse (wave 0) back to back, and the "wait for the
+  # platform before the application" the waves appear to promise would be a fiction.
+  # ArgoCD removed this assessment from its defaults in 1.8 precisely because it makes
+  # app-of-apps roots block on their children -- which is the behaviour wanted here, and
+  # so it is restored. The Lua is the snippet from the ArgoCD documentation, unmodified.
+  resource.customizations.health.argoproj.io_Application: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = ""
+    if obj.status ~= nil then
+      if obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+    end
+    return hs

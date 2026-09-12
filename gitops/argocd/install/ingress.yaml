@@ -1,0 +1,37 @@
+# The ArgoCD UI, at https://argocd.localtest.me:8443 (and plain http on 8088) -- the same
+# localtest.me trick as the application ingress, so no hosts-file edit. This is the UI
+# that gets tunnelled for a live demo (plan section 6); locally it is where the
+# experiment-2 rollback is watched.
+#
+# Host-scoped, unlike the application's ingress: two hostless catch-all rules would race
+# for every request, and the application's is the one that must win.
+#
+# TLS terminates here, at Traefik, on a certificate from the cluster's own CA
+# (platform/cert-manager). The annotation is the whole request: cert-manager sees it,
+# creates a Certificate for the hosts in the tls block, and writes the Secret named
+# there; Traefik picks the Secret up by name. The server itself still speaks plain HTTP
+# behind the ingress (patch-cmd-params.yaml), which is why this file, and not a
+# self-signed certificate inside argocd-server, is where "ArgoCD has TLS" is decided.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  annotations:
+    cert-manager.io/cluster-issuer: linkpulse-ca
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - argocd.localtest.me
+      secretName: argocd-server-tls
+  rules:
+    - host: argocd.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  name: http

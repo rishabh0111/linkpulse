@@ -1,0 +1,43 @@
+# ArgoCD itself. This is the one thing in the cluster that is NOT deployed by ArgoCD,
+# because something has to exist before there is anything to read git.
+#
+# The upstream install manifest is vendored under upstream/, byte-for-byte, pinned by the
+# same release tag .tool-versions pins for the CLI so the two cannot drift. Referencing it
+# by URL was the first attempt and it did not work with the kubectl image of the time
+# (no CA bundle, no git). The image has since changed (docker-compose.yml) and could fetch
+# it; vendoring stays, for the better reason: the install is reproducible with no network
+# -- the same manifest a year from now, whatever GitHub does -- at the cost of 1.9 MB of
+# generated YAML that is never hand-edited. Every change to ArgoCD's shape is a patch
+# below, applied on top of the untouched upstream file.
+#
+# Not Helm. The chart is a second thing to pin (chart version and app version move
+# independently), and kustomize is already what everything else here uses, so the same
+# `kubectl apply -k` that ships the application ships its deployer.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+resources:
+  - namespace.yaml
+  - upstream/install-v3.5.2.yaml
+  - ingress.yaml
+
+patches:
+  # server.insecure: the API server speaks plain HTTP behind the ingress. TLS terminates
+  # at Traefik, on the certificate ingress.yaml asks the cluster CA for; a second,
+  # self-signed certificate inside argocd-server would only be one more thing the CLI has
+  # to be told to ignore.
+  - path: patch-cmd-params.yaml
+
+  # Faster reconciliation than the 3-minute default. This is a demo cluster where "push,
+  # then watch ArgoCD notice" is the whole point, and 180 seconds of nothing happening
+  # reads as broken. Gitea could send a webhook instead, but that is one more thing to
+  # bootstrap for a loop that polling already closes in under a minute.
+  - path: patch-cm.yaml
+
+  # Dex and the notifications controller scaled to zero. There is no SSO -- the admin
+  # account is the only user -- and alerting is Alertmanager's job (phase 7). Neither is
+  # deleted from the manifest, because the upstream file is the upstream file; scaling
+  # them out is a patch the next ArgoCD upgrade cannot break.
+  - path: patch-scale-down.yaml

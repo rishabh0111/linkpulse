@@ -1,0 +1,57 @@
+# The AppProject is the blast-radius boundary. Every Application below belongs to it, and
+# what it lists is the complete set of things those Applications are permitted to do: which
+# repositories they may read, which namespaces they may write, which cluster-scoped kinds
+# they may create. An Application that tries to step outside is refused at sync time with a
+# message naming this object -- which is a far better failure than a typo in a destination
+# quietly creating resources in kube-system.
+#
+# Sync wave -1: it must exist before any Application that references it, or the first sync
+# fails with "project linkpulse does not exist" and stays failed until the next refresh.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: linkpulse
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  # Cascade: deleting the project deletes its Applications, and their finalizers delete
+  # what they deployed. This is what makes `argocd-teardown` one command rather than a
+  # sequence that has to be remembered in the right order.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: LinkPulse — the application and its monitoring stack. CRDs and webhooks are the platform project's, deliberately not this one's
+
+  # Both remotes, because the Applications under apps/local and apps/aws differ in
+  # exactly this field. Wildcards would be simpler and would also mean "any repository on
+  # the internet", which is not a property a project boundary should have.
+  sourceRepos:
+    - http://gitea:3000/linkpulse/linkpulse.git
+    - https://github.com/*/linkpulse.git
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: linkpulse
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+
+  # The only cluster-scoped kinds these Applications create. Namespaces because each
+  # overlay owns its own; ClusterRole and ClusterRoleBinding because Prometheus,
+  # kube-state-metrics and Alloy read the whole cluster and need read-only RBAC that says
+  # so. Nothing else -- an Application cannot install a CRD, a webhook or a cluster-wide
+  # admin binding however its manifests are edited. (Adding the two RBAC kinds was itself
+  # a project-level decision, refused at sync time until this list said otherwise.)
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+
+  # Everything namespaced is allowed inside the destinations above. Enumerating kinds here
+  # would mean editing this file every time the application grows a resource type, and
+  # that friction ends with a wildcard being added in a hurry anyway.
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

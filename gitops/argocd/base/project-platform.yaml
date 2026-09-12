@@ -1,0 +1,62 @@
+# The second AppProject, and the reason there are two.
+#
+# The `linkpulse` project's whitelist deliberately says an Application in it "cannot
+# install a CRD, a webhook or a cluster-wide admin binding however its manifests are
+# edited". cert-manager and Sealed Secrets are exactly those things: CRDs, admission
+# webhooks, and cluster-scoped issuers. Widening the application's project to admit them
+# would erase the boundary for the workloads it exists to contain. A second project with
+# a wider, still enumerated, whitelist keeps the statement about the application true and
+# makes the platform's extra permissions a diff someone has to read.
+#
+# Wave -3: before the linkpulse project (-1) and before the platform Applications (-2)
+# that reference it.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Cluster platform — cert-manager and Sealed Secrets, what the application's own project is not allowed to install
+
+  sourceRepos:
+    - http://gitea:3000/linkpulse/linkpulse.git
+    - https://github.com/*/linkpulse.git
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager
+    - server: https://kubernetes.default.svc
+      namespace: sealed-secrets
+    # cert-manager's controller, webhook and cainjector take leader-election leases in
+    # kube-system -- upstream puts the Role and RoleBinding for that there. Nothing else
+    # of ours lives in that namespace; the destination is admitted for that one purpose.
+    - server: https://kubernetes.default.svc
+      namespace: kube-system
+
+  # Every cluster-scoped kind the two installs create, and nothing more. The list is the
+  # honest cost of running admission controllers: they need to register with the API
+  # server (the webhook configurations), to define their types (the CRDs), and to read
+  # across namespaces (the RBAC). ClusterIssuer is ours, from platform/cert-manager/issuers.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: cert-manager.io
+      kind: ClusterIssuer
+
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

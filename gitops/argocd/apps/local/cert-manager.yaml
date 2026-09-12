@@ -1,0 +1,46 @@
+# cert-manager, as a platform Application: wave -2, so the CA issuer exists before the
+# application (wave 0) and monitoring (wave 1) ask it for certificates. Not that either
+# would fail without it -- an Ingress whose secret does not exist yet is served on
+# Traefik's default certificate until it does -- but "certificates appear on first sync"
+# is a nicer property than "certificates appear eventually".
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: http://gitea:3000/linkpulse/linkpulse.git
+    targetRevision: main
+    path: platform/cert-manager
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      # Server-side apply, for the same reason `mise run argocd-install` uses it: the
+      # CRDs are large, and client-side apply stores a copy of each object in an
+      # annotation with a 256 KB ceiling. cert-manager's are under it today; the option
+      # is here so a future release that crosses it fails nowhere.
+      - ServerSideApply=true
+    retry:
+      # More patient than the application's policy, because the first sync of a fresh
+      # cluster has a real race in it: the issuers (wave 1) are validated by the webhook
+      # (wave 0), and "Deployment Available" is a few seconds ahead of "the API server
+      # has the webhook's CA and will accept a Certificate". A retry covers it; a failed
+      # sync that waits for the next commit does not.
+      limit: 10
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

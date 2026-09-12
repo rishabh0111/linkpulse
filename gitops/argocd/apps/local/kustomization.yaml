@@ -1,0 +1,26 @@
+# What the root Application (bootstrap/base/root.yaml) points at: the complete list of
+# Applications for the local cluster, plus the projects they belong to. Adding a workload
+# to the cluster means adding a file here and committing it -- the root app notices and
+# creates the child; nobody runs kubectl.
+#
+# Sync order across this set is by wave annotation on each object, and since phase 8 the
+# waves between Applications are real: the install patches argocd-cm so that a child
+# Application's health is its own reported health, which is what makes ArgoCD wait for
+# wave -2 to be Healthy before starting wave 0 (see install/patch-cm.yaml).
+#   -3  project-platform.yaml   the platform boundary
+#   -2  cert-manager.yaml       the CA every Ingress asks for a certificate from
+#   -2  sealed-secrets.yaml     the decrypter for anything sealed in the aws overlays
+#   -1  project.yaml            the application boundary
+#    0  linkpulse.yaml          the application
+#    1  monitoring.yaml         Prometheus, Alertmanager, Grafana, Loki -- after there is something to scrape
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+resources:
+  - ../../base
+  - cert-manager.yaml
+  - sealed-secrets.yaml
+  - linkpulse.yaml
+  - monitoring.yaml

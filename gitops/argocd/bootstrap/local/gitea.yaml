@@ -1,0 +1,40 @@
+# How ArgoCD reaches Gitea, which runs outside the cluster in docker-compose.yml.
+#
+# The same pattern as k8s/manifests/overlays/local/localstack.yaml and for the same reasons
+# (that file has the full argument): a Service with no selector and a hand-written
+# EndpointSlice carrying the container's pinned address. The name `gitea` then resolves
+# from the argocd namespace, which is what the repoURL in every Application uses.
+#
+# Lives in bootstrap/ rather than apps/ because of the obvious circularity -- ArgoCD
+# cannot fetch the manifest that tells it where git is from git.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: argocd
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: gitea
+  namespace: argocd
+  labels:
+    kubernetes.io/service-name: gitea
+addressType: IPv4
+ports:
+  - name: http
+    port: 3000
+    protocol: TCP
+endpoints:
+  # docker-compose.yml: services.gitea.networks.linkpulse.ipv4_address
+  - addresses:
+      - "172.30.0.11"
+    conditions:
+      ready: true

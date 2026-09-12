@@ -1,0 +1,8 @@
+# Shared by apps/local and apps/aws. Kustomize only lets a kustomization reference a
+# *directory* outside itself, never a file, so the projects live in one of their own.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - project-platform.yaml
+  - project.yaml
