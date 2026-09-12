@@ -85,7 +85,11 @@ passed, because the alert had not resolved yet at the moment of the check. The f
 ran it, it failed six kills out of six, with backoff reaching 177 s: a rule firing correctly,
 and a harness looking at the wrong moment. It now watches inside the backoff gap, while the
 condition is true. The table above is from the earlier run; the numbers are real, the
-observation method behind the fifth-kill figure was not sound.
+observation method behind the fifth-kill figure was not sound. Re-run in CI with the fix,
+the answer was the same kill — the fifth — but now seen 78 s into that backoff gap while
+the waiting reason held, at 335 s. The three watched gaps before it (the first kill has no
+watch) are logged closing at 39 s, 27 s and 57 s — each short of the rule's minute — which
+is the experiment showing its working.
 
 **LocalStack does not enforce provisioned capacity**, and a compose comment said it did.
 Measured: 78 write units per second against a 20-unit table, zero throttles. Experiment 1

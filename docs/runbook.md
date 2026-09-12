@@ -292,8 +292,9 @@ alert firing after the fifth (the 80 s backoff was the first to outlast the minu
 other replica answering every check. That run looked for the alert *after* each restart,
 when the waiting reason had already cleared, and caught it only because it had not yet
 resolved; CI missed that window six times running. The harness now watches inside the
-backoff gap, where the rule's condition actually holds. Expect the kill count to be the
-same or one lower when the evidence is regenerated; the diagnosis above does not change.
+backoff gap, where the rule's condition actually holds. Re-run that way in CI: still the
+fifth kill, the alert firing 78 s into that gap at 335 s, and the three watched gaps before
+it (39 s, 27 s, 57 s) each logged as closing before the minute. The diagnosis above does not change.
 
 ---
 

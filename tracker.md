@@ -8,7 +8,7 @@ of Work.
 
 **Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
 
-The repository is on GitHub and CI has run six times. Seven of the eight jobs have passed on every run. `e2e` has failed on four distinct causes, each hidden behind the last. Three are fixed and confirmed by run 6 (runner disk, the k6 summary export, a silent `k3d image import` failure), and run 6 got through the load baseline and chaos 3 and 1 for the first time. The fourth is a real defect in experiment 4 itself: it looked for the CrashLoopBackOff alert after the condition had ended. Fixed and unit-tested, not yet run against a cluster. The README's pipeline claim stands on seven green jobs until e2e finishes one.
+The repository is on GitHub, and **CI has passed end to end** — run 7, all eight jobs, a 53-minute e2e job through the load baseline, chaos 3, 1, 4 and 5, and the destroy-and-restore backup. It took seven runs. Five defects were found on the way, each hidden behind the one before, and three were the same kind: a step reporting success after failing (k6's summary export, `k3d image import`, and this repository's own `phase || recover` chaos steps). Run 8 exercises the last of those fixes.
 
 ---
 
@@ -1759,6 +1759,30 @@ command in the runbooks is a task that exists in `mise.toml` today.
   (`false || true` → 0), and the CI form under `bash -e` (recovery runs either way; exits 0 on a
   pass and with the phase's own code, 3, on a failure). **Not verified:** the cmd half of the mise
   form, which needs Windows — it joins the existing `A || B` item under the `mise run` loose end.
+
+  **Run 7 — green.** All eight jobs, e2e in 53 min 28 s. Checked rather than read off the
+  job list, because run 7 still had the old `loss || node start` line in chaos 5: the whole
+  log has zero `FAIL`, zero `TIMEOUT` and zero `##[error]` lines; every check in chaos 5's
+  `loss` phase is `ok:`; and there is exactly one k3d `Starting node` between `loss` and
+  `post` (the `||` would have made it two). So every pass in run 7 was real.
+
+  Experiment 4, under the new observation method, on a GitHub runner:
+
+  | | local, old method | CI run 7, new method |
+  |---|---|---|
+  | first OOM kill | — | 94 s |
+  | `LinkpulseOOMKilled` | 125 s | 99 s |
+  | `LinkpulseCrashLooping` | kill 5, 495 s | kill 5, 335 s |
+  | how it was seen | after the restart, before the alert resolved | **78 s into the backoff gap**, while the waiting reason held |
+
+  The kill count did not move. The first kill carries no watch — it is the one that holds for
+  `LinkpulseMemoryNearLimit` and `LinkpulseOOMKilled` — so three gaps were watched before the
+  fifth: they closed at 39 s, 27 s and 57 s, each shorter than the rule's minute plus scrape
+  and evaluation lag, and the harness said so and escalated each time. The fifth gap outlasted the minute
+  and the alert fired inside it, which is what the experiment claims to show. The committed
+  `docs/evidence/chaos-4/` is still the local run. It is not replaced: the committed evidence
+  is the author's machine by design, and this run's copy is in the `chaos-evidence` artifact.
+  The runbook and case study quote both.
 
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so

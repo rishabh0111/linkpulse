@@ -81,10 +81,11 @@ Everything above is verified on one machine (Windows 11, Docker Desktop), throug
 exact commands in `mise.toml` — but not yet through `mise run` itself on a second
 machine, and **nothing has touched a real AWS account**: the `aws` and `aws-burst`
 environments, the load-balancer controller, the cost report and the teardown are
-validated and unexecuted. CI now runs on every push: seven of its eight jobs are green.
-The end-to-end job, which builds a three-node cluster on the runner, has not passed yet.
-Each run has got further than the one before, and the latest reached chaos experiment 4,
-where it found a real defect in how that experiment watched its alert.
+validated and unexecuted. CI runs on every push and has passed end to end: all eight jobs,
+including a 53-minute job that builds a three-node cluster on the runner and runs the load
+baseline, four of the five chaos experiments (2 needs Gitea and ArgoCD) and a
+destroy-and-restore backup. Getting there took seven runs and found five defects, two of
+them in the experiments themselves; `tracker.md` has each one.
 `tracker.md` § Known loose ends is the complete, current list; the README will not claim
 more than it does.
 
