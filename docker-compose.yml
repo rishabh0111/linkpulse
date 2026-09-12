@@ -28,9 +28,16 @@ networks:
     # with "Pool overlaps with other one on this address space" rather than starting
     # something subtly misrouted. Change this and localstack's ipv4_address together, and
     # the EndpointSlice in k8s/manifests/overlays/local/localstack.yaml with them.
+    #
+    # The gateway is explicit because k3d reads it: `k3d cluster create` asks the network
+    # for its gateway to learn the host IP, and Docker Engine on Linux leaves the IPAM
+    # gateway field empty when only a subnet is declared -- the first CI run failed with
+    # "no gateway defined for network linkpulse" while Docker Desktop, which fills the
+    # field in, had never shown the problem.
     ipam:
       config:
         - subnet: 172.30.0.0/16
+          gateway: 172.30.0.1
 
 volumes:
   localstack-data:
