@@ -1,0 +1,392 @@
+{
+  "experiment": 4,
+  "title": "resource exhaustion (OOMKilled to CrashLoopBackOff)",
+  "events": [
+    {
+      "t": 1789117967.4348278,
+      "rel": 0,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-cd7b5fdd6-lpq68', 'linkpulse-cd7b5fdd6-q7bb4']",
+      "value": null
+    },
+    {
+      "t": 1789117967.4640512,
+      "rel": 0,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1789117967.4722967,
+      "rel": 0,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "2.0 targets",
+      "value": null
+    },
+    {
+      "t": 1789117968.1230628,
+      "rel": 1,
+      "label": "ok: /debug/leak is routed on the target (400 without mb)",
+      "detail": "HTTP 400; is LINKPULSE_ENABLE_DEBUG_LEAK=true in the local overlay and rolled out?",
+      "value": null
+    },
+    {
+      "t": 1789117968.1322312,
+      "rel": 1,
+      "label": "target: linkpulse-cd7b5fdd6-lpq68; the other replica must keep serving throughout",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117969.5207121,
+      "rel": 2,
+      "label": "linkpulse-cd7b5fdd6-lpq68 container running",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789117971.0246286,
+      "rel": 4,
+      "label": "leaked to 100 MB retained",
+      "detail": "limit 128Mi",
+      "value": null
+    },
+    {
+      "t": 1789117986.0552983,
+      "rel": 19,
+      "label": "working set above 85% of the limit (Prometheus view)",
+      "detail": "after 15s",
+      "value": null
+    },
+    {
+      "t": 1789118061.1342406,
+      "rel": 94,
+      "label": "LinkpulseMemoryNearLimit firing",
+      "detail": "after 75s",
+      "value": null
+    },
+    {
+      "t": 1789118061.1418402,
+      "rel": 94,
+      "label": "pushing over the limit: +40 MB",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118074.3409677,
+      "rel": 107,
+      "label": "linkpulse-cd7b5fdd6-lpq68 restarted (restart count 0 -> 1)",
+      "detail": "after 12s",
+      "value": null
+    },
+    {
+      "t": 1789118074.500053,
+      "rel": 107,
+      "label": "ok: last termination reason is OOMKilled",
+      "detail": "OOMKilled",
+      "value": null
+    },
+    {
+      "t": 1789118094.5372605,
+      "rel": 127,
+      "label": "LinkpulseOOMKilled firing",
+      "detail": "after 20s",
+      "value": null
+    },
+    {
+      "t": 1789118094.5845363,
+      "rel": 127,
+      "label": "ok: the other replica is serving through the ingress",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118094.7336295,
+      "rel": 127,
+      "label": "linkpulse-cd7b5fdd6-lpq68 container running",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789118095.3877418,
+      "rel": 128,
+      "label": "leaked to 100 MB retained",
+      "detail": "limit 128Mi",
+      "value": null
+    },
+    {
+      "t": 1789118095.3972921,
+      "rel": 128,
+      "label": "pushing over the limit: +40 MB",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118117.6918888,
+      "rel": 150,
+      "label": "linkpulse-cd7b5fdd6-lpq68 restarted (restart count 1 -> 2)",
+      "detail": "after 21s",
+      "value": null
+    },
+    {
+      "t": 1789118117.788314,
+      "rel": 150,
+      "label": "ok: last termination reason is OOMKilled",
+      "detail": "OOMKilled",
+      "value": null
+    },
+    {
+      "t": 1789118117.8578842,
+      "rel": 151,
+      "label": "after kill 2: waiting reason None",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118162.910177,
+      "rel": 196,
+      "label": "TIMEOUT waiting for LinkpulseCrashLooping firing",
+      "detail": "45s",
+      "value": null
+    },
+    {
+      "t": 1789118163.3572452,
+      "rel": 196,
+      "label": "linkpulse-cd7b5fdd6-lpq68 container running",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789118163.947386,
+      "rel": 197,
+      "label": "leaked to 100 MB retained",
+      "detail": "limit 128Mi",
+      "value": null
+    },
+    {
+      "t": 1789118163.9556816,
+      "rel": 197,
+      "label": "pushing over the limit: +40 MB",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118210.2218225,
+      "rel": 243,
+      "label": "linkpulse-cd7b5fdd6-lpq68 restarted (restart count 2 -> 3)",
+      "detail": "after 45s",
+      "value": null
+    },
+    {
+      "t": 1789118210.3072603,
+      "rel": 243,
+      "label": "ok: last termination reason is OOMKilled",
+      "detail": "OOMKilled",
+      "value": null
+    },
+    {
+      "t": 1789118210.3886757,
+      "rel": 243,
+      "label": "after kill 3: waiting reason None",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118255.4359214,
+      "rel": 288,
+      "label": "TIMEOUT waiting for LinkpulseCrashLooping firing",
+      "detail": "45s",
+      "value": null
+    },
+    {
+      "t": 1789118255.5374696,
+      "rel": 288,
+      "label": "linkpulse-cd7b5fdd6-lpq68 container running",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789118256.141101,
+      "rel": 289,
+      "label": "leaked to 100 MB retained",
+      "detail": "limit 128Mi",
+      "value": null
+    },
+    {
+      "t": 1789118256.1493282,
+      "rel": 289,
+      "label": "pushing over the limit: +40 MB",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118314.324517,
+      "rel": 347,
+      "label": "linkpulse-cd7b5fdd6-lpq68 restarted (restart count 3 -> 4)",
+      "detail": "after 57s",
+      "value": null
+    },
+    {
+      "t": 1789118314.4304876,
+      "rel": 347,
+      "label": "ok: last termination reason is OOMKilled",
+      "detail": "OOMKilled",
+      "value": null
+    },
+    {
+      "t": 1789118314.503233,
+      "rel": 347,
+      "label": "after kill 4: waiting reason None",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118359.5525963,
+      "rel": 392,
+      "label": "TIMEOUT waiting for LinkpulseCrashLooping firing",
+      "detail": "45s",
+      "value": null
+    },
+    {
+      "t": 1789118359.6261516,
+      "rel": 392,
+      "label": "linkpulse-cd7b5fdd6-lpq68 container running",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789118360.2250757,
+      "rel": 393,
+      "label": "leaked to 100 MB retained",
+      "detail": "limit 128Mi",
+      "value": null
+    },
+    {
+      "t": 1789118360.2339213,
+      "rel": 393,
+      "label": "pushing over the limit: +40 MB",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118463.6504445,
+      "rel": 496,
+      "label": "linkpulse-cd7b5fdd6-lpq68 restarted (restart count 4 -> 5)",
+      "detail": "after 102s",
+      "value": null
+    },
+    {
+      "t": 1789118463.7782366,
+      "rel": 496,
+      "label": "ok: last termination reason is OOMKilled",
+      "detail": "OOMKilled",
+      "value": null
+    },
+    {
+      "t": 1789118463.8533776,
+      "rel": 497,
+      "label": "after kill 5: waiting reason None",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118463.8683422,
+      "rel": 497,
+      "label": "ok: LinkpulseCrashLooping firing",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118463.9232845,
+      "rel": 497,
+      "label": "ok: the other replica is still serving through the ingress",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118463.9427881,
+      "rel": 497,
+      "label": "recovering: no more leaks; the kubelet restarts the container on its own",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789118564.2870708,
+      "rel": 597,
+      "label": "linkpulse-cd7b5fdd6-lpq68 running and ready again (after the last backoff)",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789118564.3755612,
+      "rel": 597,
+      "label": "LinkpulseCrashLooping resolved",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789118564.4027653,
+      "rel": 597,
+      "label": "LinkpulseMemoryNearLimit resolved",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789118774.4872043,
+      "rel": 807,
+      "label": "LinkpulseOOMKilled resolved (5m window elapsed)",
+      "detail": "after 210s",
+      "value": null
+    },
+    {
+      "t": 1789118774.7538006,
+      "rel": 807,
+      "label": "ok: 2 ready pods",
+      "detail": "['linkpulse-cd7b5fdd6-lpq68', 'linkpulse-cd7b5fdd6-q7bb4']",
+      "value": null
+    },
+    {
+      "t": 1789118774.7659686,
+      "rel": 807,
+      "label": "ok: the restart count is the evidence, not a symptom: still recorded",
+      "detail": "",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-cd7b5fdd6-lpq68",
+      "linkpulse-cd7b5fdd6-q7bb4"
+    ],
+    "targetPod": "linkpulse-cd7b5fdd6-lpq68",
+    "otherPods": [
+      "linkpulse-cd7b5fdd6-q7bb4"
+    ],
+    "restartsAtStart": 0.0,
+    "secondsToFirstOOMKill": 105,
+    "secondsToOOMKilledAlert": 125,
+    "killsToCrashLoopAlert": 5,
+    "secondsToCrashLoopAlert": 495,
+    "restartsAtPeak": 5.0,
+    "belowMinReplicasAlertSeen": false,
+    "secondsToRecoverAfterLastKill": 0
+  },
+  "startedAt": 1789117967.3254585,
+  "startedIso": "2026-09-11T09:12:47+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1789117967.330053
+    },
+    {
+      "name": "during: leak, OOMKill, repeat",
+      "t": 1789117969.3429842
+    },
+    {
+      "name": "post: recovery",
+      "t": 1789118563.8195126
+    }
+  ],
+  "finishedAt": 1789118774.7776976,
+  "durationS": 807
+}

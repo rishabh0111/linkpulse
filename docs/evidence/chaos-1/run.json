@@ -1,0 +1,216 @@
+{
+  "experiment": 1,
+  "title": "DynamoDB write throttling on a hot link",
+  "events": [
+    {
+      "t": 1789117270.4203548,
+      "rel": 1,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-567b49654f-767gs', 'linkpulse-567b49654f-rmh7d']",
+      "value": null
+    },
+    {
+      "t": 1789117270.4559555,
+      "rel": 1,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1789117270.4678838,
+      "rel": 1,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "2.0 targets",
+      "value": null
+    },
+    {
+      "t": 1789117270.5122025,
+      "rel": 1,
+      "label": "ok: no clicks being dropped for throttling",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117270.5230336,
+      "rel": 1,
+      "label": "ok: LinkpulseClicksDropped not firing",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117270.5369473,
+      "rel": 1,
+      "label": "LocalStack write-error probability confirmed 0 (injection armed, not applied)",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117270.545706,
+      "rel": 1,
+      "label": "starting load: k6 throttle.js, 20 redirects/s on one link",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117312.9637158,
+      "rel": 43,
+      "label": "redirects arriving at >= 15/s",
+      "detail": "after 40s",
+      "value": null
+    },
+    {
+      "t": 1789117357.9850018,
+      "rel": 88,
+      "label": "ok: clean window: clicks recorded at >= 15/s",
+      "detail": "20.0/s",
+      "value": null
+    },
+    {
+      "t": 1789117358.0111601,
+      "rel": 88,
+      "label": "ok: clean window: nothing dropped",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117358.030474,
+      "rel": 88,
+      "label": "injecting: DYNAMODB_WRITE_ERROR_PROBABILITY=0.5 via LocalStack config",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117368.0530384,
+      "rel": 99,
+      "label": "clicks dropped with reason=throttled (rate > 0)",
+      "detail": "after 10s",
+      "value": 0.6115341022734848
+    },
+    {
+      "t": 1789117423.1049492,
+      "rel": 154,
+      "label": "LinkpulseClicksDropped{reason=throttled} firing",
+      "detail": "after 55s",
+      "value": null
+    },
+    {
+      "t": 1789117423.1209445,
+      "rel": 154,
+      "label": "LinkpulseDynamoThrottled firing",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789117423.2036538,
+      "rel": 154,
+      "label": "ok: DynamoDB reporting throttled calls",
+      "detail": "7.7/s",
+      "value": null
+    },
+    {
+      "t": 1789117423.2223902,
+      "rel": 154,
+      "label": "ok: redirects still arriving at >= 15/s",
+      "detail": "20.0/s",
+      "value": null
+    },
+    {
+      "t": 1789117423.2392244,
+      "rel": 154,
+      "label": "ok: no user-facing 5xx at all",
+      "detail": "ratio 0",
+      "value": null
+    },
+    {
+      "t": 1789117423.257121,
+      "rel": 154,
+      "label": "ok: redirect p99 within 250ms (alert line, or 2x the clean window)",
+      "detail": "25ms vs clean 21ms",
+      "value": null
+    },
+    {
+      "t": 1789117423.2981417,
+      "rel": 154,
+      "label": "recovering: DYNAMODB_WRITE_ERROR_PROBABILITY=0",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117478.3667014,
+      "rel": 209,
+      "label": "drops back to 0/s",
+      "detail": "after 55s",
+      "value": null
+    },
+    {
+      "t": 1789117498.3952365,
+      "rel": 229,
+      "label": "LinkpulseClicksDropped resolved",
+      "detail": "after 20s",
+      "value": null
+    },
+    {
+      "t": 1789117633.9905093,
+      "rel": 364,
+      "label": "ok: k6: every redirect was a 302",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117634.0061762,
+      "rel": 364,
+      "label": "ok: k6: no failed requests",
+      "detail": "",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-567b49654f-767gs",
+      "linkpulse-567b49654f-rmh7d"
+    ],
+    "clickShards": 16.0,
+    "cleanWindow": {
+      "redirectP99Ms": 21.0,
+      "clicksRecordedPerS": 20.0
+    },
+    "secondsToFirstDrop": 10,
+    "secondsToAlert": 65,
+    "throttleWindow": {
+      "redirectP99Ms": 24.8,
+      "redirectsPerS": 20.0,
+      "clicksDroppedPerS": 0.6,
+      "clicksRecordedPerS": 10.2,
+      "dynamoThrottlesPerS": 7.7,
+      "errorRatio": 0
+    },
+    "throttleHeldSeconds": 65,
+    "secondsToResolveAfterRecovery": 55,
+    "k6": {
+      "requests": 7202,
+      "p50Ms": 8.32292,
+      "p95Ms": 13.605422,
+      "p99Ms": 34.744206,
+      "failedRatio": 0,
+      "not302": 0
+    }
+  },
+  "startedAt": 1789117269.5415854,
+  "startedIso": "2026-09-11T09:01:09+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1789117269.547067
+    },
+    {
+      "name": "during: load, then the throttle",
+      "t": 1789117272.8969643
+    },
+    {
+      "name": "post: the load's own verdict",
+      "t": 1789117633.9689014
+    }
+  ],
+  "finishedAt": 1789117634.0226939,
+  "durationS": 364
+}

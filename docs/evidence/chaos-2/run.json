@@ -1,0 +1,246 @@
+{
+  "experiment": 2,
+  "title": "bad deploy through GitOps, and the rollback",
+  "events": [
+    {
+      "t": 1789120451.4590619,
+      "rel": 0,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-564c97b7c-bg9cb', 'linkpulse-564c97b7c-k9qpt']",
+      "value": null
+    },
+    {
+      "t": 1789120451.4871416,
+      "rel": 0,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1789120451.4951758,
+      "rel": 0,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "2.0 targets",
+      "value": null
+    },
+    {
+      "t": 1789120451.5715697,
+      "rel": 0,
+      "label": "ok: ArgoCD: linkpulse Synced and Healthy",
+      "detail": "{'sync': 'Synced', 'health': 'Healthy', 'revision': '3fa8a97'}",
+      "value": null
+    },
+    {
+      "t": 1789120451.6869316,
+      "rel": 0,
+      "label": "ok: every pod runs the same, good image",
+      "detail": "{'linkpulse-564c97b7c-bg9cb': ('linkpulse:local', True), 'linkpulse-564c97b7c-k9qpt': ('linkpulse:local', True)}",
+      "value": null
+    },
+    {
+      "t": 1789120451.7179186,
+      "rel": 0,
+      "label": "injecting: experiment2-git.sh break (newTag: bad, pushed to Gitea)",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789120536.9853146,
+      "rel": 86,
+      "label": "ArgoCD synced the bad commit fb1b956",
+      "detail": "after 84s",
+      "value": null
+    },
+    {
+      "t": 1789120537.207243,
+      "rel": 86,
+      "label": "a pod with the bad image exists",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789120538.2737198,
+      "rel": 87,
+      "label": "ok: the old pods are still Ready (maxUnavailable: 0)",
+      "detail": "{'linkpulse-564c97b7c-bg9cb': ('linkpulse:local', True), 'linkpulse-564c97b7c-k9qpt': ('linkpulse:local', True), 'linkpulse-5d8d97fd4f-jm4hh': ('linkpulse:bad', False)}",
+      "value": null
+    },
+    {
+      "t": 1789120538.3285468,
+      "rel": 87,
+      "label": "ok: redirect path served by the old pods",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789120656.7174659,
+      "rel": 205,
+      "label": "Deployment Progressing=False (ProgressDeadlineExceeded)",
+      "detail": "after 118s",
+      "value": null
+    },
+    {
+      "t": 1789120656.7891605,
+      "rel": 206,
+      "label": "ok: reason is ProgressDeadlineExceeded",
+      "detail": "ProgressDeadlineExceeded",
+      "value": null
+    },
+    {
+      "t": 1789120737.994131,
+      "rel": 287,
+      "label": "LinkpulseRolloutStalled firing",
+      "detail": "after 81s",
+      "value": null
+    },
+    {
+      "t": 1789120738.0727966,
+      "rel": 287,
+      "label": "ArgoCD reports the Application Degraded",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789120740.2219386,
+      "rel": 289,
+      "label": "ok: the bad pod never became Ready",
+      "detail": "{'linkpulse-564c97b7c-bg9cb': ('linkpulse:local', True), 'linkpulse-564c97b7c-k9qpt': ('linkpulse:local', True), 'linkpulse-5d8d97fd4f-jm4hh': ('linkpulse:bad', False)}",
+      "value": null
+    },
+    {
+      "t": 1789120740.290259,
+      "rel": 289,
+      "label": "ok: still >= 2 old pods Ready",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789120740.3001304,
+      "rel": 289,
+      "label": "ok: no user-facing 5xx",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789120740.3656766,
+      "rel": 289,
+      "label": "ok: redirect path still served",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789120740.4481645,
+      "rel": 289,
+      "label": "recovering: experiment2-git.sh revert (git revert, pushed)",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789120851.8410182,
+      "rel": 401,
+      "label": "ArgoCD synced the revert a7f704e",
+      "detail": "after 87s",
+      "value": null
+    },
+    {
+      "t": 1789120851.9812038,
+      "rel": 401,
+      "label": "no pod with the bad image remains",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789120852.0828424,
+      "rel": 401,
+      "label": "Deployment Progressing=True again (NewReplicaSetAvailable)",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789120874.1285584,
+      "rel": 423,
+      "label": "LinkpulseRolloutStalled resolved",
+      "detail": "after 22s",
+      "value": null
+    },
+    {
+      "t": 1789120874.2499154,
+      "rel": 423,
+      "label": "ArgoCD: Synced and Healthy",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789120874.426137,
+      "rel": 423,
+      "label": "ok: every pod runs the good image and is Ready",
+      "detail": "{'linkpulse-564c97b7c-bg9cb': ('linkpulse:local', True), 'linkpulse-564c97b7c-k9qpt': ('linkpulse:local', True)}",
+      "value": null
+    },
+    {
+      "t": 1789120874.441746,
+      "rel": 423,
+      "label": "ok: redirect path served",
+      "detail": "",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-564c97b7c-bg9cb",
+      "linkpulse-564c97b7c-k9qpt"
+    ],
+    "goodImage": "linkpulse:local",
+    "revisionAtStart": "3fa8a97",
+    "podsAtStart": [
+      "linkpulse-564c97b7c-bg9cb",
+      "linkpulse-564c97b7c-k9qpt"
+    ],
+    "breakRevision": "fb1b956",
+    "secondsToSync": 84,
+    "progressingCondition": {
+      "reason": "ProgressDeadlineExceeded",
+      "message": "ReplicaSet \"linkpulse-5d8d97fd4f\" has timed out progressing."
+    },
+    "secondsToProgressDeadline": 204,
+    "secondsToAlert": 285,
+    "podsDuringStall": {
+      "linkpulse-564c97b7c-bg9cb": [
+        "linkpulse:local",
+        true
+      ],
+      "linkpulse-564c97b7c-k9qpt": [
+        "linkpulse:local",
+        true
+      ],
+      "linkpulse-5d8d97fd4f-jm4hh": [
+        "linkpulse:bad",
+        false
+      ]
+    },
+    "revertRevision": "a7f704e",
+    "secondsToRollBack": 109
+  },
+  "startedAt": 1789120451.2812028,
+  "startedIso": "2026-09-11T09:54:11+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1789120451.2848577
+    },
+    {
+      "name": "during: the stalled rollout",
+      "t": 1789120453.1735752
+    },
+    {
+      "name": "post: the rollback",
+      "t": 1789120750.9343138
+    },
+    {
+      "name": "post: the rollback",
+      "t": 1789120765.2813003
+    }
+  ],
+  "finishedAt": 1789120874.446919,
+  "durationS": 423
+}

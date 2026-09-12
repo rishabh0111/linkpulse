@@ -1,0 +1,170 @@
+{
+  "experiment": 3,
+  "title": "dependency outage (datastore unreachable)",
+  "events": [
+    {
+      "t": 1789117040.5610056,
+      "rel": 0,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-567b49654f-767gs', 'linkpulse-567b49654f-pjgr2', 'linkpulse-567b49654f-rmh7d']",
+      "value": null
+    },
+    {
+      "t": 1789117040.5959451,
+      "rel": 0,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1789117040.6048186,
+      "rel": 0,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "4.0 targets",
+      "value": null
+    },
+    {
+      "t": 1789117040.643039,
+      "rel": 0,
+      "label": "ok: redirect path answers (404 for an unknown code)",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117040.6513681,
+      "rel": 0,
+      "label": "ok: process reports ready on every pod",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117040.6609118,
+      "rel": 0,
+      "label": "injecting: docker compose pause localstack",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117057.3835144,
+      "rel": 17,
+      "label": "linkpulse_ready == 0 on every pod (process view)",
+      "detail": "after 15s",
+      "value": null
+    },
+    {
+      "t": 1789117132.4384809,
+      "rel": 92,
+      "label": "LinkpulseNotReady firing",
+      "detail": "after 75s",
+      "value": null
+    },
+    {
+      "t": 1789117132.6215565,
+      "rel": 92,
+      "label": "0 ready pods (Kubernetes view)",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789117132.6328685,
+      "rel": 92,
+      "label": "LinkpulseNoReadyPods firing",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789117132.6965234,
+      "rel": 92,
+      "label": "LinkpulseNotReady inhibited by LinkpulseNoReadyPods",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789117132.7109015,
+      "rel": 92,
+      "label": "ok: ingress answers 5xx with no endpoints behind the Service",
+      "detail": "HTTP 503",
+      "value": null
+    },
+    {
+      "t": 1789117132.7256665,
+      "rel": 92,
+      "label": "ok: no container restarted (liveness ignores the dependency)",
+      "detail": "restarts=0.0",
+      "value": null
+    },
+    {
+      "t": 1789117132.801102,
+      "rel": 92,
+      "label": "ok: the pods are still Running, merely not Ready",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117132.8063114,
+      "rel": 92,
+      "label": "recovering: docker compose unpause localstack",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789117139.7642279,
+      "rel": 99,
+      "label": "2 ready pods again",
+      "detail": "after 5s",
+      "value": null
+    },
+    {
+      "t": 1789117159.8250337,
+      "rel": 119,
+      "label": "both alerts resolved",
+      "detail": "after 20s",
+      "value": null
+    },
+    {
+      "t": 1789117159.8469706,
+      "rel": 119,
+      "label": "ok: still no container restarted",
+      "detail": "restarts=0.0",
+      "value": null
+    },
+    {
+      "t": 1789117159.8830206,
+      "rel": 119,
+      "label": "ok: redirect path answers again",
+      "detail": "",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-567b49654f-767gs",
+      "linkpulse-567b49654f-pjgr2",
+      "linkpulse-567b49654f-rmh7d"
+    ],
+    "restartsAtStart": 0.0,
+    "secondsToProcessNotReady": 15,
+    "secondsToNotReadyAlert": 90,
+    "secondsToKubernetesNotReady": 90,
+    "secondsToNoReadyPodsAlert": 90,
+    "secondsToRecoverReady": 5
+  },
+  "startedAt": 1789117040.4311028,
+  "startedIso": "2026-09-11T08:57:20+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1789117040.4347763
+    },
+    {
+      "name": "during: the outage",
+      "t": 1789117042.341802
+    },
+    {
+      "name": "post: recovery",
+      "t": 1789117134.520371
+    }
+  ],
+  "finishedAt": 1789117159.8912172,
+  "durationS": 119
+}

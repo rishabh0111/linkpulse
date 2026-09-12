@@ -1,0 +1,327 @@
+{
+  "experiment": 5,
+  "title": "node loss (drain, then a stopped node)",
+  "events": [
+    {
+      "t": 1789121089.347839,
+      "rel": 0,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-564c97b7c-bg9cb', 'linkpulse-564c97b7c-k9qpt']",
+      "value": null
+    },
+    {
+      "t": 1789121089.3797295,
+      "rel": 0,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1789121089.3897166,
+      "rel": 0,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "2.0 targets",
+      "value": null
+    },
+    {
+      "t": 1789121089.76019,
+      "rel": 1,
+      "label": "ok: PDB allows exactly one disruption at two replicas",
+      "detail": "1",
+      "value": null
+    },
+    {
+      "t": 1789121089.932529,
+      "rel": 1,
+      "label": "ok: the target node is Ready",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121090.2452462,
+      "rel": 1,
+      "label": "no replica on the target; rolling the deployment to re-spread",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121096.1464515,
+      "rel": 7,
+      "label": "a replica on k3d-linkpulse-agent-0, 2 ready",
+      "detail": "after 1s",
+      "value": null
+    },
+    {
+      "t": 1789121096.6080885,
+      "rel": 8,
+      "label": "target: k3d-linkpulse-agent-0",
+      "detail": "hosting ['linkpulse-6db46f7797-vl9r4']",
+      "value": null
+    },
+    {
+      "t": 1789121099.179428,
+      "rel": 10,
+      "label": "kubectl drain k3d-linkpulse-agent-0 --pod-selector app.kubernetes.io/name=linkpulse",
+      "detail": "evicting ['linkpulse-6db46f7797-vl9r4']",
+      "value": null
+    },
+    {
+      "t": 1789121106.2853503,
+      "rel": 17,
+      "label": "drain returned",
+      "detail": "node/k3d-linkpulse-agent-0 drained",
+      "value": null
+    },
+    {
+      "t": 1789121106.4531198,
+      "rel": 17,
+      "label": "ok: the node is cordoned",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121107.060699,
+      "rel": 18,
+      "label": "ok: no application pod remains on the node",
+      "detail": "{'k3d-linkpulse-server-0': ['linkpulse-6db46f7797-bfwdj'], 'k3d-linkpulse-agent-1': ['linkpulse-6db46f7797-rq4vb']}",
+      "value": null
+    },
+    {
+      "t": 1789121107.1720881,
+      "rel": 18,
+      "label": "2 ready replicas again, on other nodes",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789121110.316705,
+      "rel": 21,
+      "label": "ok: redirect path served throughout (one replica was always ready)",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121110.9008934,
+      "rel": 22,
+      "label": "node uncordoned",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789121110.905886,
+      "rel": 22,
+      "label": "rolling the deployment so a replica lands back on the target",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121118.238849,
+      "rel": 29,
+      "label": "a replica scheduled on k3d-linkpulse-agent-0, 2 ready",
+      "detail": "after 1s",
+      "value": null
+    },
+    {
+      "t": 1789121118.3181176,
+      "rel": 29,
+      "label": "injecting: k3d node stop k3d-linkpulse-agent-0",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121122.201017,
+      "rel": 33,
+      "label": "ok: a replica was on the node when it stopped",
+      "detail": "{'k3d-linkpulse-agent-0': ['linkpulse-5cccf6bd55-br25t'], 'k3d-linkpulse-server-0': ['linkpulse-5cccf6bd55-dx6xb']}",
+      "value": null
+    },
+    {
+      "t": 1789121173.5784602,
+      "rel": 84,
+      "label": "k3d-linkpulse-agent-0 NotReady (Kubernetes view)",
+      "detail": "after 51s",
+      "value": null
+    },
+    {
+      "t": 1789121269.7540576,
+      "rel": 181,
+      "label": "KubeNodeNotReady firing",
+      "detail": "after 96s",
+      "value": null
+    },
+    {
+      "t": 1789121269.9402552,
+      "rel": 181,
+      "label": "fewer ready replicas than the HPA minimum",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789121269.9527693,
+      "rel": 181,
+      "label": "LinkpulseBelowMinReplicas firing",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789121270.0453916,
+      "rel": 181,
+      "label": "ok: redirect path still served by the surviving replica",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121477.5102093,
+      "rel": 388,
+      "label": "replacement replica ready elsewhere (2 ready again)",
+      "detail": "after 207s",
+      "value": null
+    },
+    {
+      "t": 1789121479.5278852,
+      "rel": 390,
+      "label": "the deployment sat below its minimum for ~285s (Prometheus, 15s samples)",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121479.6123416,
+      "rel": 391,
+      "label": "ok: redirect path served throughout",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121511.7131104,
+      "rel": 423,
+      "label": "LinkpulseBelowMinReplicas resolved",
+      "detail": "after 32s",
+      "value": null
+    },
+    {
+      "t": 1789121511.7188122,
+      "rel": 423,
+      "label": "recovering: k3d node start k3d-linkpulse-agent-0",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1789121519.7910452,
+      "rel": 431,
+      "label": "k3d-linkpulse-agent-0 Ready again",
+      "detail": "after 4s",
+      "value": null
+    },
+    {
+      "t": 1789123135.709522,
+      "rel": 2047,
+      "label": "KubeNodeNotReady resolved",
+      "detail": "after 1616s",
+      "value": null
+    },
+    {
+      "t": 1789123136.079898,
+      "rel": 2047,
+      "label": "the pod stranded on the node is cleaned up",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1789123136.7963521,
+      "rel": 2048,
+      "label": "ok: 2 ready replicas",
+      "detail": "['linkpulse-5cccf6bd55-8dx2w', 'linkpulse-5cccf6bd55-dx6xb']",
+      "value": null
+    },
+    {
+      "t": 1789123137.0282412,
+      "rel": 2048,
+      "label": "ok: PDB allows one disruption again",
+      "detail": "1",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-564c97b7c-bg9cb",
+      "linkpulse-564c97b7c-k9qpt"
+    ],
+    "targetNode": "k3d-linkpulse-agent-0",
+    "pdbDisruptionsAllowedAtStart": 1,
+    "singletonsMovedOffTarget": [],
+    "podsByNodeAtStart": {
+      "k3d-linkpulse-agent-1": [
+        "linkpulse-6db46f7797-rq4vb"
+      ],
+      "k3d-linkpulse-agent-0": [
+        "linkpulse-6db46f7797-vl9r4"
+      ]
+    },
+    "drainSeconds": 7,
+    "drainSecondsToTwoReady": 8,
+    "podsByNodeAfterDrain": {
+      "k3d-linkpulse-server-0": [
+        "linkpulse-6db46f7797-bfwdj"
+      ],
+      "k3d-linkpulse-agent-1": [
+        "linkpulse-6db46f7797-rq4vb"
+      ]
+    },
+    "belowMinReplicasDuringDrain": null,
+    "podsByNodeBeforeStop": {
+      "k3d-linkpulse-agent-0": [
+        "linkpulse-5cccf6bd55-br25t"
+      ],
+      "k3d-linkpulse-server-0": [
+        "linkpulse-5cccf6bd55-dx6xb"
+      ]
+    },
+    "podsOnNodeAtStop": [
+      "linkpulse-5cccf6bd55-br25t"
+    ],
+    "collateralOnNodeAtStop": [],
+    "secondsToNodeNotReady": 51,
+    "secondsToNodeAlert": 147,
+    "secondsToBelowMinReplicasAlert": 147,
+    "secondsBelowMinReplicas": 285,
+    "podsByNodeAfterReplacement": {
+      "k3d-linkpulse-agent-1": [
+        "linkpulse-5cccf6bd55-8dx2w"
+      ],
+      "k3d-linkpulse-server-0": [
+        "linkpulse-5cccf6bd55-dx6xb"
+      ]
+    },
+    "secondsToNodeReady": 4,
+    "podsByNodeAtEnd": {
+      "k3d-linkpulse-agent-1": [
+        "linkpulse-5cccf6bd55-8dx2w"
+      ],
+      "k3d-linkpulse-server-0": [
+        "linkpulse-5cccf6bd55-dx6xb"
+      ]
+    }
+  },
+  "startedAt": 1789121089.0957873,
+  "startedIso": "2026-09-11T10:04:49+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1789121089.10258
+    },
+    {
+      "name": "during, first half: drain (voluntary, PDB-governed)",
+      "t": 1789121098.3379571
+    },
+    {
+      "name": "during, second half: the node is gone",
+      "t": 1789121121.9884682
+    },
+    {
+      "name": "post: the node returns",
+      "t": 1789121516.278897
+    }
+  ],
+  "finishedAt": 1789123137.8007915,
+  "durationS": 2049
+}
