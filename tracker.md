@@ -8,7 +8,7 @@ of Work.
 
 **Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
 
-The repository is on GitHub and CI has run. Seven of the eight jobs pass; `e2e` filled the runner's disk deploying the monitoring stack and has a fix in this commit that no run has exercised yet. Until one has, the README's pipeline claim stands on seven green jobs, not eight.
+The repository is on GitHub and CI has run three times. Seven of the eight jobs have passed on every run. `e2e` has failed twice for two unrelated reasons, both now fixed and one of them confirmed fixed by a run: the disk exhaustion is gone (14 GB free became 46 GB, and the monitoring stack it used to die on now deploys, is proven observing, and passes TLS and the Sealed Secrets round trip), and the k6 output directory that replaced it is fixed but unexercised. The README's pipeline claim stands on seven green jobs until e2e finishes one.
 
 ---
 
@@ -1606,32 +1606,49 @@ command in the runbooks is a task that exists in `mise.toml` today.
   and a real registry to have pushed to — and an unverifiable job that commits to `main`
   is a worse thing to ship than a documented gap. First item once the repository is on
   GitHub.
-- **`.github/workflows/ci.yml` has run, and the e2e job failed on runner disk — fixed, not
-  yet re-run.** Two runs so far; in both, all seven other jobs passed (app, terraform static,
+- **`.github/workflows/ci.yml` has run; `e2e` has failed twice, for two different reasons.**
+  Three runs so far. In all three, the seven other jobs passed (app, terraform static,
   terraform-against-LocalStack apply/idempotent-plan/destroy, manifests, scripts, the Trivy
   gate, and the ghcr.io build-and-push), which closes the action versions, the registry login
-  and the multi-arch build as unproven. The e2e job got as far as a verified-TLS smoke test
-  through the ingress and then died deploying the monitoring stack.
+  and the multi-arch build as unproven.
 
-  The cause was not the stack. The three k3d nodes are containers on the runner's one
-  filesystem, so containerd pulls every image once *per node* — eight monitoring images with
-  a ~1 GB Grafana renderer among them, on top of cert-manager, Sealed Secrets, the k3s addons
-  and LocalStack. kubelet crossed its ephemeral-storage eviction threshold (10% of nodefs;
-  3.84 GB, against 2.69 GB available) on all three nodes, evicted the workload — including
-  the two healthy `linkpulse` pods — tainted every node `disk-pressure`, and the replacements
-  then failed to schedule with `0/3 nodes are available: 3 node(s) had untolerated taint(s)`.
-  The job spent forty minutes in `rollout status` waiting for deployments that could not come
-  up, which is the second bug: the failure was slow and the evidence was an eviction message
-  rather than anything about disk.
+  **Runs 1 and 2 — the runner's disk.** The job died deploying the monitoring stack. Not the
+  stack's fault: the three k3d nodes are containers on the runner's one filesystem, so
+  containerd pulls every image once *per node* — eight monitoring images with a ~1 GB Grafana
+  renderer among them, on top of cert-manager, Sealed Secrets, the k3s addons and LocalStack.
+  kubelet crossed its ephemeral-storage eviction threshold (10% of nodefs; 3.84 GB, against
+  2.69 GB available) on all three nodes, evicted the workload — including the two healthy
+  `linkpulse` pods, which is why they show `Completed` — tainted every node `disk-pressure`,
+  and the replacements then failed to schedule with `0/3 nodes are available: 3 node(s) had
+  untolerated taint(s)`. The job spent forty minutes in `rollout status` waiting for
+  deployments that could not come up, which was the second half of the bug: the failure was
+  slow, and its evidence was an eviction message rather than anything about disk.
 
-  This is the loose end below about `dev` being image-heavy, arriving on a machine with less
-  slack than mine. Both halves are fixed in the e2e job: a reclaim step before the cluster is
-  built, dropping the ~25 GB of toolchains the job never opens (Android SDK, hosted tool
-  cache, .NET, GHC/ghcup, Swift, PowerShell) plus the runner's preinstalled images, and then
-  a hard assertion of 20 GiB free that fails in seconds with the number in it. `df`, `docker
-  system df` and the node conditions and taints are now in the `always()` diagnostics, so the
-  next disk wall is readable off the log. **Verified only as YAML and shell** — `bash -n` and
-  the rendered step, here. The claim that e2e is green needs the next run.
+  This was the loose end below about `dev` being image-heavy, arriving on a machine with less
+  slack than mine. Both halves fixed in `e2e`: a reclaim step before the cluster is built,
+  dropping the ~25 GB of toolchains the job never opens (Android SDK, hosted tool cache, .NET,
+  GHC/ghcup, Swift, PowerShell) plus the runner's preinstalled images, then a hard assertion
+  of 20 GiB free that fails in seconds with the number in it. `df`, `docker system df` and the
+  node conditions and taints are now in the `always()` diagnostics. **Verified by run 3:**
+  14 GB free became 46 GB, the assertion passed at 45 GiB, and the monitoring stack deployed,
+  was proven observing, and passed TLS and the Sealed Secrets round trip. 35 GB was still free
+  after it. The job also failed in 13 minutes rather than 47.
+
+  **Run 3 — `load-testing/k6/output/` does not exist in a fresh clone.** The load baseline
+  itself was entirely green: 5284 checks, none failed, 0 dropped iterations, redirect
+  p95 = 9.02 ms and p99 = 14.17 ms against thresholds of 150 and 250, graphql p95 = 20.41 ms
+  against 500. What failed was `k6-summary.py`, with `FileNotFoundError` on the export k6 was
+  told to write. The directory is gitignored, so it exists on my machine from earlier runs and
+  never in CI — and **k6 does not treat a failed `--summary-export` as fatal**: it logs
+  `failed to handle the end-of-test summary` and exits 0, so `bash -e` let the job walk on and
+  the real cause surfaced one command later as a traceback about the wrong thing. Exactly the
+  `/.kube` problem, and fixed the same way the repository already solved it: the directory is
+  tracked via `.gitkeep`, with the exports still ignored. `k6-summary.py` now also reports a
+  missing file as a diagnosis (exit 2) rather than a traceback, which covers experiment 1 and
+  the `k6-throttle` task as well — both write to the same directory. **Verified here, not in
+  CI:** the ignore rules (an export is still ignored, the `.gitkeep` is not), and all three of
+  the script's exits — 0 on the real numbers above, 1 on a failed threshold, 2 on a missing
+  file. That e2e completes needs run 4.
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so
   a collision fails loudly at `compose up` rather than misrouting, but it is the one value in

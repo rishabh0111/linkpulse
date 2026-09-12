@@ -84,8 +84,12 @@ kubeconfig.*
 /docs/evidence/chaos-*/*.rev
 
 # k6 raw output can be hundreds of MB. The committed artifact is the --summary-export
-# JSON, not the full sample stream.
-/load-testing/k6/output/
+# JSON, not the full sample stream. The directory itself is tracked (via .gitkeep) for the
+# same reason /.kube is: k6 writes into it through a bind mount, and --summary-export does
+# not create the parent directory -- it logs the failure and exits 0 anyway, so a missing
+# directory shows up as a confusing FileNotFoundError in whatever reads the JSON next.
+/load-testing/k6/output/*
+!/load-testing/k6/output/.gitkeep
 *.k6-raw.json
 
 # ---------------------------------------------------------------------------------------

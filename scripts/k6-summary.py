@@ -15,7 +15,22 @@ def main() -> int:
     if len(sys.argv) != 2:
         print("usage: k6-summary.py <summary-export.json>", file=sys.stderr)
         return 2
-    data = json.load(open(sys.argv[1], encoding="utf-8"))
+    # k6 does not treat a failed --summary-export as fatal: it logs "failed to handle the
+    # end-of-test summary" and still exits 0, so the first sign of trouble is this script
+    # opening a file that was never written. Say what actually happened instead of raising
+    # FileNotFoundError from under json.load -- the usual cause is that the output directory
+    # does not exist, which is why it is tracked with a .gitkeep.
+    try:
+        with open(sys.argv[1], encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        print(
+            f"{sys.argv[1]} does not exist. k6 exits 0 even when --summary-export fails, so "
+            "check the k6 log above for 'failed to handle the end-of-test summary' -- if the "
+            "parent directory is missing, k6 will not create it.",
+            file=sys.stderr,
+        )
+        return 2
     m = data["metrics"]
 
     def v(name: str, key: str, default=float("nan")):
