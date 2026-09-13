@@ -8,7 +8,7 @@ of Work.
 
 **Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
 
-The repository is on GitHub, and **CI has passed end to end** — run 7, all eight jobs, a 53-minute e2e job through the load baseline, chaos 3, 1, 4 and 5, and the destroy-and-restore backup. It took seven runs. Five defects were found on the way, each hidden behind the one before, and three were the same kind: a step reporting success after failing (k6's summary export, `k3d image import`, and this repository's own `phase || recover` chaos steps). Run 8 exercises the last of those fixes.
+The repository is on GitHub, and **CI has passed end to end** — run 7, all eight jobs, a 53-minute e2e job through the load baseline, chaos 3, 1, 4 and 5, and the destroy-and-restore backup. It took seven runs. Five defects were found on the way, each hidden behind the one before, and three were the same kind: a step reporting success after failing (k6's summary export, `k3d image import`, and this repository's own `phase || recover` chaos steps). Run 8, carrying the last of those fixes, passed too, and its log was checked the same way: no hidden failures, and each chaos recovery ran exactly once.
 
 ---
 
@@ -1783,6 +1783,18 @@ command in the runbooks is a task that exists in `mise.toml` today.
   `docs/evidence/chaos-4/` is still the local run. It is not replaced: the committed evidence
   is the author's machine by design, and this run's copy is in the `chaos-evidence` artifact.
   The runbook and case study quote both.
+
+  **Run 8 — green again, with the chaos 3/5 fix in.** All eight jobs, e2e in 54 min 30 s.
+  Checked the same way as run 7, since a clean job list was the failure mode being fixed:
+  zero `FAIL`, `TIMEOUT` and `##[error]` lines. The two `failed (exit` matches are both the
+  step script echoed in the group header (the literal `$rc`), not the error firing.
+  `linkpulse-localstack Unpaused` appears once, and k3d's `Starting node 'k3d-linkpulse-agent-0'`
+  twice — once at cluster creation and once after `loss` — so each recovery ran exactly once
+  and no assertion phase failed. Experiment 4 reproduced run 7: the alert fired **81 s into the
+  fifth kill's backoff gap** (78 s in run 7), confirmed at 336 s. Two consecutive green runs
+  are the evidence that the pipeline is stable rather than lucky once. The new rc-capture lines'
+  failure path is covered by the local `bash -e` test above, not by a CI failure, which is the
+  right way round.
 
 - **The pinned Docker subnet `172.30.0.0/16` is a hardcoded choice** (docker-compose.yml,
   and the EndpointSlice literal in the local overlay). It is inside Docker's default pool so
