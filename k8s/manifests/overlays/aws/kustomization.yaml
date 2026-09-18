@@ -17,7 +17,9 @@ namespace: linkpulse
 resources:
   - ../../base
 
-# Set by CI to the digest it pushed. A tag would be mutable -- two clusters could resolve
+# Set by CI to the digest it pushed: the `promote` job runs scripts/promote-image.sh once
+# e2e has passed on main, and commits the result. Until its first run this still reads
+# the placeholder below. A tag would be mutable -- two clusters could resolve
 # ghcr.io/<repo>:main to different bytes -- and during a metered burst "which build is
 # actually running" is not a question worth paying to answer.
 images:

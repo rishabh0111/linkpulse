@@ -121,6 +121,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo koalaman/shellcheck:stable -s sh \
             scripts/tf-check.sh scripts/seal.sh scripts/seal-check.sh scripts/burst-teardown.sh scripts/bootstrap.sh \
+            scripts/promote-image.sh \
             scripts/chaos/experiment2-git.sh
       - name: Byte-compile the Python scripts
         # Cheap and catches the syntax-level regressions of a script edited without being
@@ -205,10 +206,8 @@ jobs:
       # in them were compromised.
       packages: write
     outputs:
-      # Nothing consumes these yet. They are the seam phase 6 needs: the GitOps commit
-      # that updates the manifests repo pins the image by digest, not by tag, so the
-      # digest has to leave this job somehow. Declaring it now keeps that change to one
-      # new job rather than a rewrite of this one.
+      # Consumed by `promote` at the bottom of this file, which pins the aws overlay to
+      # the image by digest, not by tag -- so the digest has to leave this job somehow.
       digest: ${{ steps.build.outputs.digest }}
       version: ${{ steps.meta.outputs.version }}
     steps:
@@ -578,3 +577,64 @@ jobs:
           docker system df || true
           docker compose run --rm kubectl get nodes \
             -o custom-columns=NODE:.metadata.name,CONDITIONS:.status.conditions[*].type,TAINTS:.spec.taints[*].key || true
+
+  # -------------------------------------------------------------------------------------
+  # Promotion: the last step of plan section 4.6, "update manifests".
+  #
+  # Writes the digest the image job pushed into the aws overlay and commits it to main,
+  # so ArgoCD on EKS rolls a build out without anyone editing a tag. Gated on e2e as well
+  # as the image: a build is only promoted once it has deployed to three nodes and
+  # survived the chaos experiments, not merely once it has been pushed.
+  #
+  # The commit is pushed with GITHUB_TOKEN, and GitHub does not start workflow runs for
+  # pushes made with that token. That is what keeps this from being a loop -- a
+  # promotion commit that triggered CI would build, push and promote again, forever. The
+  # cost is that the promotion commit itself has no run of its own; the render check in
+  # scripts/promote-image.sh stands in for the `manifests` job it would otherwise get.
+  # -------------------------------------------------------------------------------------
+  promote:
+    name: Promote the image to the aws overlay
+    needs: [image, e2e]
+    # Pushes to the default branch and manual runs on it. Never a pull request (nothing
+    # was pushed to promote) and never a tag (a release is not a deployment).
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      # The only job in this file that writes to the repository, and it is scoped here
+      # rather than at the top for the same reason `packages: write` is scoped to image.
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pin the aws overlay to the pushed digest
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+        # Lowercased because docker/metadata-action lowercases the name it pushes under,
+        # and ghcr.io requires it; github.repository keeps the owner's own casing.
+        run: |
+          docker compose run --rm -T --entrypoint sh ops \
+            scripts/promote-image.sh "$REGISTRY/${IMAGE_NAME,,}" "$DIGEST"
+
+      - name: Commit and push, unless main has moved on
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+        # If main is no longer the commit this run built, a newer run owns the promotion,
+        # and pushing this build's digest over it would roll EKS back. Concurrency should
+        # already have cancelled this run in that case; the check is for the window
+        # between the fetch the checkout did and the push below. A push that loses that
+        # race fails non-fast-forward, which is the right way to lose it.
+        run: |
+          if git diff --quiet; then
+            echo "The aws overlay already pins $DIGEST."
+            exit 0
+          fi
+          git fetch --depth=1 origin "$GITHUB_REF_NAME"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::notice::$GITHUB_REF_NAME has moved past $GITHUB_SHA; not promoting this build over a newer one"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -a -m "Promote ${GITHUB_SHA::7} to the aws overlay" \
+            -m "Pins $REGISTRY/${IMAGE_NAME,,}@$DIGEST, built and tested by run $GITHUB_RUN_ID."
+          git push origin "HEAD:$GITHUB_REF_NAME"

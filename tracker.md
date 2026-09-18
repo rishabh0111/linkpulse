@@ -1601,7 +1601,26 @@ command in the runbooks is a task that exists in `mise.toml` today.
   comparison stripped and require at least one series -- but "no series" is also the
   correct answer for a rule about a condition that is not currently present, so the check
   needs the experiments to be meaningful, and now it has them.
-- **The CI → manifests promotion step does not exist yet.** Plan §4.6 ends the pipeline
+- ~~**The CI → manifests promotion step does not exist yet.**~~ **Written; not yet run.**
+  A `promote` job at the end of `ci.yml`, `needs: [image, e2e]`, default branch only,
+  the one job with `contents: write`. It runs `scripts/promote-image.sh` in the `ops`
+  container, which rewrites only the `images` entry of the aws overlay (`newName` plus
+  `digest`, `newTag` dropped) and then asserts on the *rendered* Deployment's image rather
+  than on the file. Not `kustomize edit set image`, which strips every comment, and not
+  `yq -i`, which strips every blank line: a promotion is a two-line diff. The job commits
+  only if `main` is still the commit it built (otherwise a newer run owns the promotion);
+  it pushes with `GITHUB_TOKEN`, which starts no workflow run, so there is no loop.
+  **Verified here:** the script in the `ops` image on a copy of the tree: first promotion
+  is a two-line diff with comments and blank lines intact; a second replaces the first
+  rather than stacking; an empty digest and an uppercase or tagged name exit 2; a base
+  whose image name no longer matches the placeholder exits 1 at the render check.
+  shellcheck `-s sh` and actionlint clean. **Not verified:** the job itself, which needs a
+  push to `main` and a 55-minute run. What to check on its first run: the bot commit
+  lands, it does not trigger a run, and its digest equals the `image` job's output and the
+  package's `sha256:` on ghcr.io. **Cost of it:** every green push to `main` is followed
+  by a bot commit, so `git pull` before the next push.
+
+  The original entry, for the record: Plan §4.6 ends the pipeline
   with "update manifests": CI writing the pushed image digest into
   `k8s/manifests/overlays/aws` and committing it, so that ArgoCD on EKS rolls a build out
   without a human editing a tag. The `image` job already exports the digest for exactly

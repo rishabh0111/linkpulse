@@ -45,9 +45,10 @@ Everything here is free-tier or free, and none of it starts the clock.
    real values:
    - `OWNER` → the GitHub owner, in `gitops/argocd/apps/aws/kustomization.yaml` (four
      places) and `gitops/argocd/bootstrap/aws/kustomization.yaml`.
-   - `ghcr.io/owner/linkpulse` and `newTag: main` → the real image and its **digest**
-     (`newDigest:` rather than a tag; the `image` job's output) in
-     `k8s/manifests/overlays/aws/kustomization.yaml`.
+   - The image in `k8s/manifests/overlays/aws/kustomization.yaml` needs no hand edit:
+     CI's `promote` job pins it by **digest** (`newName:` + `digest:`) after every green
+     run on `main`. Check it is not still `ghcr.io/owner/linkpulse` / `newTag: main`,
+     and `git pull` first: each promotion is a bot commit on `main`.
    - `arn:aws:iam::000000000000:role/linkpulse-burst-irsa` →
      `terraform output irsa_role_arn` (after step 8) in
      `k8s/manifests/overlays/aws/patch-serviceaccount.yaml`.
