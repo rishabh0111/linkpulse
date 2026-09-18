@@ -24,8 +24,8 @@ resources:
 # actually running" is not a question worth paying to answer.
 images:
   - name: ghcr.io/owner/linkpulse
-    newName: ghcr.io/owner/linkpulse
-    newTag: main
+    newName: ghcr.io/rishabh0111/linkpulse
+    digest: sha256:5847485eb37d6741e1a4f6fd17ef861c0516c464ef68aaf91dea3256f93f83a6
 
 configMapGenerator:
   - name: linkpulse-config
