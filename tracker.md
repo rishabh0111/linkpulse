@@ -6,7 +6,7 @@ versus merely written. Updated at the end of each phase.
 Plan of record: `../plan/linkpulse-plan.md`. Phase numbering follows the plan's §7 Order
 of Work.
 
-**Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is the only remaining phase and is blocked on an AWS account; `docs/burst-runbook.md` is ready for it.
+**Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is under way: the account exists and the free checklist is being worked through (see the Phase 10 section). Nothing metered has started.
 
 The repository is on GitHub, and **CI has passed end to end** — run 7, all eight jobs, a 53-minute e2e job through the load baseline, chaos 3, 1, 4 and 5, and the destroy-and-restore backup. It took seven runs. Five defects were found on the way, each hidden behind the one before, and three were the same kind: a step reporting success after failing (k6's summary export, `k3d image import`, and this repository's own `phase || recover` chaos steps). Run 8, carrying the last of those fixes, passed too, and its log was checked the same way: no hidden failures, and each chaos recovery ran exactly once.
 
@@ -1496,6 +1496,39 @@ command in the runbooks is a task that exists in `mise.toml` today.
 
 ---
 
+## Phase 10 — The AWS burst 🟡 (in progress: free checklist; the metered window has not opened)
+
+**The account.** A new account on AWS's **Free plan** (created September 2026): $100 of
+sign-up credit, $180 after four of the five credit activities, which were done through the
+CLI and cleaned up (Bedrock waits on account verification). The Free plan never bills the
+card; its catch is that it blocks services "that could deplete credits", and whether EKS
+is one of them is not documented. The first EKS create will say; upgrading keeps the
+credits.
+
+**Found before anything was spent: the guardrails could not have fired.** AWS Budgets nets
+credits out by default, so on a credit-funded account both budgets would have read $0.00
+all window. Both now set `include_credit = false`, and `cost-report.py` filters out credit
+and refund records. A guardrail that watches the net bill watches the wrong thing when
+someone else is paying it.
+
+Runbook checklist, as executed:
+
+| Step | Result |
+|---|---|
+| 1. Credentials | IAM user for the operator, key kept outside the repo; `sts get-caller-identity` resolves |
+| 2. Repository | public; ghcr.io package public (anonymous pull 200); CI green; `promote` pinned the aws overlay by digest on its first run |
+| 3. Substitutions | image digest (by CI), `OWNER` (done). IRSA and CloudWatch role ARNs and the ALB hostname wait on the burst apply |
+| 4. Terraform inputs | `envs/aws/terraform.tfvars`, `envs/aws-burst/terraform.tfvars`, `backend.hcl` written, all gitignored |
+| 5. State bucket | applied, 7 resources. Bootstrap's local state backed up outside the repo |
+| 6. Always-free environment | plan read first (27 adds; no NAT, EIP, instance or LB; two Gateway endpoints; table 20/20 + GSI 5/5; budgets gross), applied. `metered-resources.py --expect-none` passes, its first run against a real account; `billed_resources = []` |
+| 7. Cost allocation tags | pending (a console step) |
+| 8. EKS version | 1.34 in standard support until 2026-12-02; no pin moves if the window opens before then |
+| 9. Sealed Secrets key | pending |
+| 10. Local dress rehearsal | pending |
+
+Every `terraform apply` against the real account is run from a saved plan that was read
+first. Apply and plan are separate steps here, not one command.
+
 ## Remaining phases (plan §7)
 
 | # | Phase | State |
@@ -1505,7 +1538,7 @@ command in the runbooks is a task that exists in `mise.toml` today.
 | 7 | Observability: Prometheus, Loki, Grafana JSON, CloudWatch → DynamoDB metrics, Discord alerts | ✅ done |
 | 8 | Automation scripts: bootstrap, teardown, backup, cost report; TLS via local CA (+ Sealed Secrets) | ✅ done |
 | 9 | k6 baseline, then chaos 1–5 exploratory → codified with observed thresholds | ✅ done |
-| 10 | The AWS burst (72h, $25), runbook written **before** the clock starts | blocked — needs an AWS account; none configured here |
+| 10 | The AWS burst (72h, $25), runbook written **before** the clock starts | in progress — free checklist steps 1–6 and 8 done |
 | 11 | postmortem, runbook, case study, README, architecture diagram | ✅ done |
 
 ## Known loose ends
