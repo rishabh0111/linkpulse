@@ -136,6 +136,12 @@ def post() -> None:
     c.wait_for(RUN, "Deployment Progressing=True again (NewReplicaSetAvailable)",
                lambda: deployment_conditions().get("Progressing", {}).get("reason") == "NewReplicaSetAvailable", timeout=180)
     c.wait_for(RUN, "LinkpulseRolloutStalled resolved", lambda: c.alert_state("LinkpulseRolloutStalled") is None, timeout=300)
+    # The bad pod is also NotReady for longer than LinkpulseNotReady's `for: 1m`, so that
+    # alert fires as well: a correct side effect, not the one this experiment is about.
+    # Waited for here because the at-rest mon-check after the experiment asserts that no
+    # critical alert is firing; on a Fedora host it cleared ~40s after post returned, and
+    # the check caught it.
+    c.wait_for(RUN, "LinkpulseNotReady resolved", lambda: c.alert_state("LinkpulseNotReady") is None, timeout=300)
     c.wait_for(RUN, "ArgoCD: Synced and Healthy",
                lambda: c.argocd_app("linkpulse")["sync"] == "Synced" and c.argocd_app("linkpulse")["health"] == "Healthy", timeout=300)
     RUN.fact("secondsToRollBack", round(c.now() - t0))

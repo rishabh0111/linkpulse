@@ -17,12 +17,30 @@ data:
   # platform before the application" the waves appear to promise would be a fiction.
   # ArgoCD removed this assessment from its defaults in 1.8 precisely because it makes
   # app-of-apps roots block on their children -- which is the behaviour wanted here, and
-  # so it is restored. The Lua is the snippet from the ArgoCD documentation, unmodified.
+  # so it is restored.
+  #
+  # The Lua began as the snippet from the ArgoCD documentation, which reads only the
+  # child's reported health. That was not enough: a child mid-sync reports Healthy as soon
+  # as the resources applied so far are healthy, so the root moved to wave 0 while
+  # cert-manager's own sync was still running. Measured on a fresh cluster: cert-manager's
+  # sync 07:26:16 to 07:26:36, linkpulse's started 07:26:21, and the smoke test's tls-ca
+  # step found no CA yet. The two checks added first make a child Progressing until its
+  # sync operation has finished and it is Synced, so a wave means "the previous wave is
+  # done", not "the previous wave has started". Phase 6 never lost this race on the slower
+  # original host.
   resource.customizations.health.argoproj.io_Application: |
     hs = {}
     hs.status = "Progressing"
     hs.message = ""
     if obj.status ~= nil then
+      if obj.status.operationState ~= nil and obj.status.operationState.phase == "Running" then
+        hs.message = "sync in progress"
+        return hs
+      end
+      if obj.status.sync == nil or obj.status.sync.status ~= "Synced" then
+        hs.message = "not yet synced"
+        return hs
+      end
       if obj.status.health ~= nil then
         hs.status = obj.status.health.status
         if obj.status.health.message ~= nil then
@@ -31,3 +49,73 @@ data:
       end
     end
     return hs
+
+  # ArgoCD's default exclusions, restated from upstream install-v3.5.2.yaml with one
+  # change: EndpointSlice is no longer excluded (Endpoints still is).
+  #
+  # Since 3.0 ArgoCD ignores EndpointSlices entirely, on the grounds that the control plane
+  # generates them. Ours is not generated: the local overlay's localstack EndpointSlice is
+  # a hand-written manifest, the only thing routing the app to LocalStack. Excluded, it
+  # was silently never applied, and the app failed readiness on every cluster built by
+  # `gitops` from nothing. Phase 6 missed it because it ran on a cluster `dev` had already
+  # populated with kubectl, so the slice was there and ArgoCD "adopted with no diff".
+  # Found on the first `clean && gitops` on a second host.
+  #
+  # A ConfigMap value is one string, so this replaces the whole default list rather than
+  # removing a line from it. On an ArgoCD upgrade, re-derive it from the new upstream
+  # manifest; a list that drifts from upstream would quietly start watching, or ignoring,
+  # something new.
+  resource.exclusions: |
+    ### Network resources created by the Kubernetes control plane and excluded to reduce the number of watched events and UI clutter
+    - apiGroups:
+      - ''
+      - discovery.k8s.io
+      kinds:
+      - Endpoints
+    ### Internal Kubernetes resources excluded reduce the number of watched events
+    - apiGroups:
+      - coordination.k8s.io
+      kinds:
+      - Lease
+    ### Internal Kubernetes Authz/Authn resources excluded reduce the number of watched events
+    - apiGroups:
+      - authentication.k8s.io
+      - authorization.k8s.io
+      kinds:
+      - SelfSubjectReview
+      - TokenReview
+      - LocalSubjectAccessReview
+      - SelfSubjectAccessReview
+      - SelfSubjectRulesReview
+      - SubjectAccessReview
+    ### Intermediate Certificate Request excluded reduce the number of watched events
+    - apiGroups:
+      - certificates.k8s.io
+      kinds:
+      - CertificateSigningRequest
+    - apiGroups:
+      - cert-manager.io
+      kinds:
+      - CertificateRequest
+    ### Cilium internal resources excluded reduce the number of watched events and UI Clutter
+    - apiGroups:
+      - cilium.io
+      kinds:
+      - CiliumIdentity
+      - CiliumEndpoint
+      - CiliumEndpointSlice
+    ### Kyverno intermediate and reporting resources excluded reduce the number of watched events and improve performance
+    - apiGroups:
+      - kyverno.io
+      - reports.kyverno.io
+      - wgpolicyk8s.io
+      kinds:
+      - PolicyReport
+      - ClusterPolicyReport
+      - EphemeralReport
+      - ClusterEphemeralReport
+      - AdmissionReport
+      - ClusterAdmissionReport
+      - BackgroundScanReport
+      - ClusterBackgroundScanReport
+      - UpdateRequest

@@ -1524,7 +1524,7 @@ Runbook checklist, as executed:
 | 7. Cost allocation tags | pending (a console step) |
 | 8. EKS version | 1.34 in standard support until 2026-12-02; no pin moves if the window opens before then |
 | 9. Sealed Secrets key | re-keyed on this host (the old key stayed on the Windows machine): new certificate committed, private key backed up outside the repo, both aws secrets re-sealed with real values (Discord webhook, a generated Grafana password), and each verified offline to decrypt to the intended value by hash |
-| 10. Local dress rehearsal | pending |
+| 10. Local dress rehearsal | green on the Fedora host after four fixes (below): `clean && gitops && chaos-all`; k6 baseline p95 28 ms, p99 45 ms, 0 failed, and all five experiments' assertions pass (chaos-2's on a rerun on the same cluster, after its fix) |
 
 **`mise run dev` on a second host: Fedora, Docker Engine, SELinux enforcing.** The first
 `mise run` ever (mise was never installed on the Windows machine), and the first run from a
@@ -1547,6 +1547,36 @@ Then green: smoke PASS (TLS verified), observability 29/29, tls-check 26 ok / 1 
 seal-check PASS. This closes the "`mise run` path is unverified" loose end for Linux (the
 Windows `cmd` half still is) and makes the §4.9 claim two hosts, not one.
 
+**The dress rehearsal: `clean && gitops && chaos-all`, from an empty cluster.** Six runs.
+The GitOps path had never been built from nothing before. Phase 6 verified it on a
+cluster that `dev` had already populated with kubectl, and ArgoCD "adopted with no diff"
+everything a from-scratch sync would have had to create. Four defects, each hidden behind
+the one before:
+
+1. *Disk* (runs 1–3, partly). The host was at 96%; kubelet's 15% imagefs threshold
+   evicted every pod. The host was cleared, not the project changed. A cluster up costs
+   about 5 GB, so `dev`'s working margin is about 20 GB free.
+2. *ArgoCD 3.x excludes EndpointSlice by default.* The local overlay's hand-written
+   `localstack` slice was never applied, so the app could not reach LocalStack and
+   failed readiness. `patch-cm.yaml` restates upstream's exclusion list without
+   EndpointSlice (Endpoints stays excluded), to be re-derived on an ArgoCD upgrade.
+3. *Sync waves did not order anything.* The documented health Lua for child Applications
+   reads only their reported health, and a mid-sync child reports Healthy as soon as
+   what it has applied so far is healthy. linkpulse started syncing 5 s into
+   cert-manager's 20 s sync, and tls-ca found no CA. The Lua now holds a child at
+   Progressing until its operation has finished and it is Synced; unit-tested on five
+   states.
+4. *Two waits that trusted a summary.* `gitops` checked monitoring on ArgoCD's app health,
+   which read Healthy while Prometheus was still pulling its image. It now also runs the
+   `rollout status` waits `mon-apply` does. chaos-2's `post` waited for
+   LinkpulseRolloutStalled to resolve but not for LinkpulseNotReady, which the bad pod
+   also fires; the at-rest mon-check caught it firing ~40 s after `post` returned.
+
+Timings against the committed (Windows) evidence, same assertions: chaos-1 alert 65 → 56
+s; chaos-2 rollback 109 → 86 s; chaos-3 NotReady alert 90 → 75 s; chaos-4 CrashLoop alert
+495 → 308 s (kill 5 both); chaos-5 node alert 147 → 130 s. The committed evidence is left
+as the Windows runs; this host's copies were not committed.
+
 Every `terraform apply` against the real account is run from a saved plan that was read
 first. Apply and plan are separate steps here, not one command.
 
@@ -1559,7 +1589,7 @@ first. Apply and plan are separate steps here, not one command.
 | 7 | Observability: Prometheus, Loki, Grafana JSON, CloudWatch → DynamoDB metrics, Discord alerts | ✅ done |
 | 8 | Automation scripts: bootstrap, teardown, backup, cost report; TLS via local CA (+ Sealed Secrets) | ✅ done |
 | 9 | k6 baseline, then chaos 1–5 exploratory → codified with observed thresholds | ✅ done |
-| 10 | The AWS burst (72h, $25), runbook written **before** the clock starts | in progress — free checklist steps 1–6 and 8 done |
+| 10 | The AWS burst (72h, $25), runbook written **before** the clock starts | in progress — free checklist done except cost allocation tags (waiting on AWS tag discovery) |
 | 11 | postmortem, runbook, case study, README, architecture diagram | ✅ done |
 
 ## Known loose ends

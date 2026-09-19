@@ -613,6 +613,13 @@ run = [
   "mise run k8s-smoke",
   "docker compose run --rm kubectl wait --for=create application/monitoring -n argocd --timeout=300s",
   "docker compose run --rm kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/monitoring -n argocd --timeout=900s",
+  # And the workloads themselves, the same waits mon-apply does. ArgoCD can report a
+  # just-synced app Healthy before its cache holds the new Deployments: on a fresh
+  # cluster the wait above passed while Prometheus was still pulling its image, and
+  # mon-check found it behind a Traefik "no available server". The Healthy wait stays as
+  # the GitOps assertion; these are the facts mon-check depends on.
+  "docker compose run --rm kubectl rollout status deploy -n monitoring --timeout=900s",
+  "docker compose run --rm kubectl rollout status daemonset -n monitoring --timeout=300s",
   "docker compose run --rm kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/cert-manager application/sealed-secrets -n argocd --timeout=300s",
   "mise run mon-check",
   "mise run tls-check",
