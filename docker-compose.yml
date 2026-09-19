@@ -67,6 +67,16 @@ services:
     # $0 constraint. This is checked by asserting the edition in scripts/, not by
     # trusting the tag.
     image: localstack/localstack:4.14
+    # SELinux hosts (Fedora, RHEL) label the Docker socket so that no container can
+    # connect to it, and a socket mount fails with a bare "permission denied". There is
+    # no relabel option for a socket, so the three services that mount it (this one,
+    # k3d, trivy) run with labelling off. That gives up little: a container holding the
+    # socket already controls the Docker daemon, which is root on the host, and SELinux
+    # confinement does not change that. The repo mounts elsewhere use `:z` instead, which
+    # relabels the checkout so containers can read it and keeps every other tool
+    # container confined. Both are no-ops where SELinux is absent (Docker Desktop, the
+    # Ubuntu CI runners). Found on the first run on a Fedora host.
+    security_opt: [label=disable]
     container_name: linkpulse-localstack
     networks:
       linkpulse:
@@ -208,7 +218,7 @@ services:
     networks: [linkpulse]
     working_dir: /repo
     volumes:
-      - .:/repo
+      - .:/repo:z
     environment:
       TF_IN_AUTOMATION: "1"
       TF_VAR_localstack_endpoint: http://localstack:4566
@@ -229,7 +239,7 @@ services:
     networks: [linkpulse]
     working_dir: /repo/app/graphql-api
     volumes:
-      - .:/repo
+      - .:/repo:z
       # Named volume for the module cache: without it every invocation re-downloads
       # the dependency tree, which turns a 2-second test run into a 90-second one.
       - go-mod-cache:/go/pkg/mod
@@ -246,6 +256,7 @@ services:
   # with `kubectl config set-cluster` instead of sed.
   k3d:
     image: ghcr.io/k3d-io/k3d:5.9.0
+    security_opt: [label=disable]  # the socket; see localstack
     profiles: [tools]
     working_dir: /repo
     # k3d only ever talks to the Docker socket, so it needs no network of its own -- but it
@@ -256,7 +267,7 @@ services:
     # exited by the time anything could resolve it.
     networks: [linkpulse]
     volumes:
-      - .:/repo
+      - .:/repo:z
       # k3d does not run Kubernetes; it drives the host's Docker daemon to run it. Every
       # node is a container created through this socket, which is also why the cluster
       # survives this container exiting.
@@ -289,7 +300,7 @@ services:
     # world-readable on the host filesystem to save nothing.
     user: "0:0"
     volumes:
-      - .:/repo
+      - .:/repo:z
     environment:
       # Written by `mise run cluster-up`, and pointing at the API server by container name
       # over this network -- see k8s/k3d/cluster.yaml for why that name is in the
@@ -307,11 +318,12 @@ services:
   # exists nowhere else.
   trivy:
     image: aquasec/trivy:0.74.0
+    security_opt: [label=disable]  # the socket; see localstack
     profiles: [tools]
     networks: [linkpulse]
     working_dir: /repo
     volumes:
-      - .:/repo
+      - .:/repo:z
       - /var/run/docker.sock:/var/run/docker.sock
       # The vulnerability database is ~50 MB and refreshed every six hours; without a
       # volume every scan starts by downloading it.
@@ -337,7 +349,7 @@ services:
     working_dir: /repo
     user: "0:0"
     volumes:
-      - .:/repo
+      - .:/repo:z
     environment:
       KUBECONFIG: ${LINKPULSE_KUBECONFIG:-/repo/.kube/config}
       AWS_ACCESS_KEY_ID:
@@ -377,7 +389,7 @@ services:
     # container access before any of these services can read it at all.
     user: "0:0"
     volumes:
-      - .:/repo
+      - .:/repo:z
     environment:
       BASE_URL: http://k3d-linkpulse-serverlb
 
@@ -387,7 +399,7 @@ services:
     networks: [linkpulse]
     working_dir: /repo
     volumes:
-      - .:/repo
+      - .:/repo:z
     command: ["python3", "scripts/smoke.py", "--base-url", "http://api:8080"]
 
   # ---------------------------------------------------------------------------------

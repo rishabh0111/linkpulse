@@ -1523,8 +1523,29 @@ Runbook checklist, as executed:
 | 6. Always-free environment | plan read first (27 adds; no NAT, EIP, instance or LB; two Gateway endpoints; table 20/20 + GSI 5/5; budgets gross), applied. `metered-resources.py --expect-none` passes, its first run against a real account; `billed_resources = []` |
 | 7. Cost allocation tags | pending (a console step) |
 | 8. EKS version | 1.34 in standard support until 2026-12-02; no pin moves if the window opens before then |
-| 9. Sealed Secrets key | pending |
+| 9. Sealed Secrets key | re-keyed on this host (the old key stayed on the Windows machine): new certificate committed, private key backed up outside the repo, both aws secrets re-sealed with real values (Discord webhook, a generated Grafana password), and each verified offline to decrypt to the intended value by hash |
 | 10. Local dress rehearsal | pending |
+
+**`mise run dev` on a second host: Fedora, Docker Engine, SELinux enforcing.** The first
+`mise run` ever (mise was never installed on the Windows machine), and the first run from a
+checkout that was not the one the project was built in. Two fresh-clone defects, each
+invisible on the original host:
+
+- *SELinux.* Fedora labels bind mounts and the Docker socket so containers cannot use
+  them, and `cluster-up` failed with "permission denied" on the socket. Fixed narrowly:
+  `security_opt: [label=disable]` only on the three services that mount the socket
+  (localstack, k3d, trivy), which already control the Docker daemon and gain nothing from
+  confinement, and `:z` on the eight `.:/repo` mounts, so every other tool container stays
+  confined. A blanket `label=disable` on all nine was written first and backed out as a
+  needless weakening. No effect where SELinux is absent.
+- *`certs/` did not exist.* `tls-ca` redirects into it from the host, and a shell `>`
+  cannot create a directory. The original host had the directory from before it was
+  ignored; CI hid it with its own `mkdir -p certs`. Now tracked via `.gitkeep`, like
+  `.kube/`.
+
+Then green: smoke PASS (TLS verified), observability 29/29, tls-check 26 ok / 1 skipped,
+seal-check PASS. This closes the "`mise run` path is unverified" loose end for Linux (the
+Windows `cmd` half still is) and makes the §4.9 claim two hosts, not one.
 
 Every `terraform apply` against the real account is run from a saved plan that was read
 first. Apply and plan are separate steps here, not one command.

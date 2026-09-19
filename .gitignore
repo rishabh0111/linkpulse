@@ -65,7 +65,11 @@ kubeconfig.*
 #                             file that decrypts every SealedSecret in the aws overlays. Keep
 #                             it somewhere safer than a laptop; never commit it.
 # The public sealing certificate is committed at platform/sealed-secrets/sealing-cert.crt.
-/certs/
+# The directory itself is tracked (via .gitkeep), the same as .kube/ and for the same
+# reason: tls-ca and seal-export write into it with a host-side `>`, which cannot create
+# a directory, so a fresh clone without it failed `dev` at tls-ca.
+/certs/*
+!/certs/.gitkeep
 
 # Table exports from scripts/backup.py: real data from a real table, and potentially
 # large. backups/backup-check.jsonl.gz is LocalStack fixture data and equally not worth
