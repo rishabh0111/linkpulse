@@ -14,7 +14,9 @@ Two things worth knowing before running it:
      service, one by the Environment tag) plus one free Budgets call, so a run is $0.02
      -- which will itself appear in the report, under "AWS Cost Explorer". Run it once a
      day during the burst, not in a loop.
-  2. Cost Explorer data lags by up to 24 hours, and tag-grouped cost is empty until the
+  2. Every figure is gross: credits and refunds are filtered out, so on an account
+     spending its sign-up credits this still shows what the burst consumed.
+  3. Cost Explorer data lags by up to 24 hours, and tag-grouped cost is empty until the
      tag has been activated as a cost allocation tag in the Billing console. That is a
      console action Terraform cannot take; the burst runbook has it as a step, and until
      it has been done the by-environment section prints as such rather than as zeros.
@@ -55,6 +57,10 @@ def cost_by(ce, start: str, end: str, group: dict) -> tuple[dict, dict]:
             Granularity="DAILY",
             Metrics=["UnblendedCost"],
             GroupBy=[group],
+            # Gross cost. Credits and refunds are line items of their own with negative
+            # amounts, and on an account running on its sign-up credits they net every
+            # service to $0.00 -- the same reason the budgets set include_credit = false.
+            Filter={"Not": {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Credit", "Refund"]}}},
         )
         if token:
             kwargs["NextPageToken"] = token

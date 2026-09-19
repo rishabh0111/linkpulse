@@ -16,12 +16,12 @@ patches:
       kind: Application
       name: linkpulse
     patch: |
-      # The real repository. OWNER is substituted by the burst runbook, the same way the
-      # IRSA account ID is; it is the one identifier in the repo that is mine and not the
+      # The real repository. It was an OWNER placeholder until the repository went public
+      # before the burst; it is the one identifier in the repo that is mine and not the
       # project's.
       - op: replace
         path: /spec/source/repoURL
-        value: https://github.com/OWNER/linkpulse.git
+        value: https://github.com/rishabh0111/linkpulse.git
       - op: replace
         path: /spec/source/path
         value: k8s/manifests/overlays/aws
@@ -31,7 +31,7 @@ patches:
     patch: |
       - op: replace
         path: /spec/source/repoURL
-        value: https://github.com/OWNER/linkpulse.git
+        value: https://github.com/rishabh0111/linkpulse.git
       - op: replace
         path: /spec/source/path
         value: monitoring/overlays/aws
@@ -44,11 +44,11 @@ patches:
     patch: |
       - op: replace
         path: /spec/source/repoURL
-        value: https://github.com/OWNER/linkpulse.git
+        value: https://github.com/rishabh0111/linkpulse.git
   - target:
       kind: Application
       name: sealed-secrets
     patch: |
       - op: replace
         path: /spec/source/repoURL
-        value: https://github.com/OWNER/linkpulse.git
+        value: https://github.com/rishabh0111/linkpulse.git

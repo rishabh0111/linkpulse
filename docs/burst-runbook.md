@@ -43,8 +43,8 @@ Everything here is free-tier or free, and none of it starts the clock.
    repository does not carry.
 3. **Substitutions.** Placeholders, all account- or owner-specific, none committed with
    real values:
-   - `OWNER` → the GitHub owner, in `gitops/argocd/apps/aws/kustomization.yaml` (four
-     places) and `gitops/argocd/bootstrap/aws/kustomization.yaml`.
+   - ~~`OWNER` → the GitHub owner~~ done: `gitops/argocd/{apps,bootstrap}/aws` point at
+     `rishabh0111/linkpulse`.
    - The image in `k8s/manifests/overlays/aws/kustomization.yaml` needs no hand edit:
      CI's `promote` job pins it by **digest** (`newName:` + `digest:`) after every green
      run on `main`. Check it is not still `ghcr.io/owner/linkpulse` / `newTag: main`,

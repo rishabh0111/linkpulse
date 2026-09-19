@@ -21,6 +21,15 @@ resource "aws_budgets_budget" "tripwire" {
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
 
+  # Gross spend, not spend net of credits. AWS's default subtracts credits, and a new
+  # account starts with $100 of them (up to $200), so by default this would read $0.00
+  # through the whole burst and never fire. What a guardrail has to watch is what the
+  # account is consuming, whoever ends up paying for it.
+  cost_types {
+    include_credit = false
+    include_refund = false
+  }
+
   # Fires on actual spend crossing 1% of $1, i.e. one cent. AWS requires a percentage
   # rather than an absolute trigger, so the limit is set to $1 and the threshold to the
   # smallest meaningful fraction of it.
@@ -57,6 +66,13 @@ resource "aws_budgets_budget" "burst_ceiling" {
   limit_amount = tostring(var.burst_budget_usd)
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
+
+  # Gross, for the same reason as the tripwire: net of credits the ceiling is never
+  # approached, and "the credits covered it" is not the same claim as "it cost $25".
+  cost_types {
+    include_credit = false
+    include_refund = false
+  }
 
   notification {
     comparison_operator        = "GREATER_THAN"
