@@ -83,6 +83,7 @@ module "irsa" {
   table_arn   = data.terraform_remote_state.base.outputs.table_arn
   index_arns  = ["${data.terraform_remote_state.base.outputs.table_arn}/index/*"]
 
+  create_irsa       = true
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_provider_url = module.eks.oidc_provider_url
 

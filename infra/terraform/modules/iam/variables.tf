@@ -20,8 +20,24 @@ variable "create_app_user" {
   default     = false
 }
 
+variable "create_irsa" {
+  description = "Create the IRSA role. Off outside EKS, which is how the local and LocalStack environments reuse this module."
+  type        = bool
+  default     = false
+
+  validation {
+    # This is a flag rather than `oidc_provider_arn != null` because that ARN is created
+    # by the EKS cluster in the same apply, so its value is unknown at plan time and
+    # Terraform refuses a count that depends on it ("Invalid count argument"). Found on
+    # the first real plan of envs/aws-burst; the workaround is a targeted apply, which is
+    # exactly the kind of step the burst window should not be spending minutes on.
+    condition     = !var.create_irsa || var.oidc_provider_arn != null
+    error_message = "create_irsa requires oidc_provider_arn (and oidc_provider_url)."
+  }
+}
+
 variable "oidc_provider_arn" {
-  description = "EKS OIDC provider ARN. When null, no IRSA role is created — which is how the local and LocalStack environments reuse this module."
+  description = "EKS OIDC provider ARN, required when create_irsa is set. May be unknown at plan time."
   type        = string
   default     = null
 }

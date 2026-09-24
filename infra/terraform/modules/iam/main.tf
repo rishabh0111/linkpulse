@@ -88,12 +88,14 @@ resource "aws_iam_policy" "table_access" {
 # IRSA — used during the EKS burst.
 #
 # The pod assumes this role through the cluster's OIDC provider, so no credential is ever
-# stored in the cluster. Created only when an OIDC provider ARN is supplied, which is why
-# the local and LocalStack environments can use this same module without it.
+# stored in the cluster. Created only when create_irsa is set, which is why the local and
+# LocalStack environments can use this same module without it. The flag exists instead of
+# an `oidc_provider_arn != null` test because that ARN is unknown at plan time; variables.tf
+# has the full reason.
 # ---------------------------------------------------------------------------------------
 
 data "aws_iam_policy_document" "irsa_trust" {
-  count = var.oidc_provider_arn == null ? 0 : 1
+  count = var.create_irsa ? 1 : 0
 
   statement {
     effect  = "Allow"
@@ -122,7 +124,7 @@ data "aws_iam_policy_document" "irsa_trust" {
 }
 
 resource "aws_iam_role" "irsa" {
-  count = var.oidc_provider_arn == null ? 0 : 1
+  count = var.create_irsa ? 1 : 0
 
   name               = "${var.name_prefix}-irsa"
   description        = "Assumed by the LinkPulse pod via the EKS OIDC provider."
@@ -132,7 +134,7 @@ resource "aws_iam_role" "irsa" {
 }
 
 resource "aws_iam_role_policy_attachment" "irsa" {
-  count = var.oidc_provider_arn == null ? 0 : 1
+  count = var.create_irsa ? 1 : 0
 
   role       = aws_iam_role.irsa[0].name
   policy_arn = aws_iam_policy.table_access.arn
