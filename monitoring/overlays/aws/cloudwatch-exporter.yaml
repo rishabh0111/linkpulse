@@ -42,30 +42,49 @@ data:
           searchTags:
             - key: Project
               value: linkpulse
-          # 60s period, 60s length: one datapoint per minute, which is DynamoDB's own
-          # resolution for these metrics. Shorter would return the same points twice.
+          # 60s period: one datapoint per minute, DynamoDB's resolution for the consumed
+          # and throttle metrics. A 300s look-back: the exporter reports the newest
+          # datapoint in that window, and two of these metrics are not per-minute at all.
+          #
+          # This was `length: 60`, and on the burst cluster -- the first time the exporter
+          # ever ran -- every value was NaN. Provisioned*CapacityUnits is published every
+          # five minutes, so a 60s window usually held nothing; and CloudWatch's own
+          # publishing lag pushed even the per-minute points outside it. LocalStack emits
+          # no CloudWatch metrics, so this could not have been caught before the burst.
           period: 60
-          length: 60
+          length: 300
           delay: 60
           metrics:
+            # nilToZero on the counters: CloudWatch does not publish a zero, it publishes
+            # nothing, so an idle table or a throttle-free minute reads NaN. The throttle
+            # graph needs a flat 0 line with a spike on it, not a gap -- a gap is
+            # indistinguishable from the exporter being broken. The Provisioned gauges
+            # deliberately do NOT get it: a missing capacity reading shown as 0 would be a
+            # lie, where NaN is the truth.
             - name: ConsumedReadCapacityUnits
               statistics: [Sum]
+              nilToZero: true
             - name: ConsumedWriteCapacityUnits
               statistics: [Sum]
+              nilToZero: true
             - name: ProvisionedReadCapacityUnits
               statistics: [Average]
             - name: ProvisionedWriteCapacityUnits
               statistics: [Average]
             - name: ThrottledRequests
               statistics: [Sum]
+              nilToZero: true
             - name: ReadThrottleEvents
               statistics: [Sum]
+              nilToZero: true
             - name: WriteThrottleEvents
               statistics: [Sum]
+              nilToZero: true
             - name: SuccessfulRequestLatency
               statistics: [Average, p99]
             - name: SystemErrors
               statistics: [Sum]
+              nilToZero: true
 ---
 apiVersion: apps/v1
 kind: Deployment
