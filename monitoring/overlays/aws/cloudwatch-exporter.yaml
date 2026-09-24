@@ -24,7 +24,7 @@ metadata:
   name: cloudwatch-exporter
   annotations:
     # Placeholder account ID, substituted by the burst runbook alongside the app's.
-    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/linkpulse-burst-cloudwatch-exporter
+    eks.amazonaws.com/role-arn: arn:aws:iam::783764599729:role/linkpulse-burst-cloudwatch-exporter
 automountServiceAccountToken: false
 ---
 apiVersion: v1
