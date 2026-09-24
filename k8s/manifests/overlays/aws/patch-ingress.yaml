@@ -24,6 +24,13 @@ metadata:
     # the whole namespace, torn down with the cluster, is the difference between a few
     # dollars and a surprise.
     alb.ingress.kubernetes.io/group.name: linkpulse
+    # Last in the group. This Ingress carries the base's host-less rule, which matches any
+    # Host header, and the controller orders a group's rules by group.order and then by
+    # namespace/name -- so "linkpulse/linkpulse" sorted ahead of "monitoring/grafana" and
+    # the catch-all took priority 2, above every monitoring host rule. Grafana,
+    # Prometheus and Alertmanager all answered with the application's 404. A high order
+    # puts the catch-all where a catch-all belongs.
+    alb.ingress.kubernetes.io/group.order: "100"
 spec:
   # The ALB controller, not Traefik. This single field is why the base declares an
   # ingressClassName it knows the overlay will replace, rather than leaving it unset:
