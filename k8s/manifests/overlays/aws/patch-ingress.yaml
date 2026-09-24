@@ -9,8 +9,13 @@ metadata:
     # the target group immediately instead of after kube-proxy notices.
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # HTTP only. An HTTPS listener makes the controller look for an ACM certificate
+    # matching a host rule, and with none imported it refuses to build the load balancer
+    # at all: "no certificate found for host: linkpulse.localtest.me", no ALB, no address.
+    # Importing a certificate is a console step the burst deliberately skips (the runbook
+    # says so), so the listener that depends on it goes too. Restore both lines, and
+    # ssl-redirect, on the day a real certificate exists.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     # The ALB must health-check the readiness endpoint, not /. Checking / would report a
     # pod healthy while it cannot reach DynamoDB, and the load balancer would keep sending
     # it traffic through exactly the outage chaos experiment 3 induces.
