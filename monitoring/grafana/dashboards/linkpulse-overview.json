@@ -1432,6 +1432,141 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "title": "DynamoDB's own view: write capacity and throttles (CloudWatch, EKS only)",
+      "description": "From the CloudWatch exporter, so it exists only where the table is real DynamoDB: empty on the local cluster, because LocalStack publishes no CloudWatch metrics. One-minute resolution and a few minutes behind. Consumed above provisioned is DynamoDB spending burst credit; throttle events start when the credit runs out. Compare with the drop counter on this dashboard: the app sees the same throttling seconds after it happens, CloudWatch minutes after.",
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "provisioned WCU"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "consumed WCU/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "write throttle events/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "range": true,
+          "legendFormat": "consumed WCU/s",
+          "expr": "max(aws_dynamodb_consumed_write_capacity_units_sum{dimension_GlobalSecondaryIndexName=\"\"}) / 60"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "range": true,
+          "legendFormat": "provisioned WCU",
+          "expr": "max(aws_dynamodb_provisioned_write_capacity_units_average{dimension_GlobalSecondaryIndexName=\"\"})"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "C",
+          "range": true,
+          "legendFormat": "write throttle events/s",
+          "expr": "max(aws_dynamodb_write_throttle_events_sum{dimension_GlobalSecondaryIndexName=\"\"}) / 60"
+        }
+      ]
     }
   ]
 }
