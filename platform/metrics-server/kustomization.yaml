@@ -1,0 +1,18 @@
+# metrics-server, for EKS only.
+#
+# k3s ships metrics-server, so the local cluster has had one since phase 5 and the HPA
+# was verified against it. EKS ships none: on the burst cluster the HPA read
+# `cpu: <unknown>/70%` and could not have scaled on anything. The manifests promised an
+# autoscaler that, on the target platform, had no metrics to autoscale on.
+#
+# Vendored byte-for-byte from the upstream release, like platform/cert-manager: the file
+# under upstream/ is what `kubectl apply -k` applies, and its version is in its name, so
+# "which build is running" is answerable from the repository alone.
+#
+# The local overlays do not reference this directory -- applying it on k3s would put a
+# second metrics-server against the one k3s already runs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - upstream/components-v0.9.0.yaml

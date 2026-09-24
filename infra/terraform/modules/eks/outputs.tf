@@ -44,7 +44,11 @@ output "estimated_hourly_usd" {
     Excludes the ALB and data transfer. Emitted so `terraform output` states the cost of
     leaving the cluster up — the number that matters most inside a metered window.
   EOT
-  value       = format("%.4f", 0.10 + (var.node_count * 0.0224) + (var.node_count * var.disk_size * 0.08 / 730))
+  # The per-node price is a lookup rather than a literal, because the literal silently
+  # lied the moment the instance type changed: the estimate stayed at t3.small's rate
+  # while t3.medium nodes billed at twice it. An unknown type falls back to the larger
+  # rate, so a missing entry overstates the burn rather than understating it.
+  value = format("%.4f", 0.10 + (var.node_count * lookup(local.node_hourly_usd, var.instance_types[0], 0.0448)) + (var.node_count * var.disk_size * 0.08 / 730))
 }
 
 data "aws_region" "current" {}

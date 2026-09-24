@@ -11,6 +11,13 @@ spec:
       labels:
         app.kubernetes.io/name: alloy
     spec:
+      # Node-critical, so these schedule on every node even when it is full.
+      # On EKS a node accepts a fixed number of pods (11 on a t3.small, set by the VPC
+      # CNI), and ordinary pods filled two nodes before the DaemonSets were placed --
+      # leaving those nodes with no metrics and no logs, silently, because a DaemonSet
+      # pod that cannot schedule is Pending rather than failed. A per-node agent that
+      # must run everywhere has to be able to displace a replaceable pod.
+      priorityClassName: system-node-critical
       serviceAccountName: alloy
       # Runs on the control-plane node too: on k3d it schedules workloads, and the
       # application has been seen placed there.

@@ -3,18 +3,27 @@
 # Everything here bills by the hour from creation to deletion:
 #
 #   control plane      $0.10/hr        ~$7.20 over 72 hours
-#   2x t3.small        ~$0.0224/hr ea  ~$3.23 over 72 hours
-#   2x 20 GB gp3       $0.08/GB-mo     ~$0.26 over 72 hours
+#   4x t3.small        ~$0.0224/hr ea  ~$6.45 over 72 hours
+#   4x 20 GB gp3       $0.08/GB-mo     ~$0.53 over 72 hours
 #   ALB (ingress)      ~$0.0225/hr     ~$1.62 over 72 hours
 #
-# ~$12 of the $25 budget, before data transfer and before the one mistake the budget has
-# room for. This module exists only inside the window and `terraform destroy` is what ends
+# ~$16 of the $25 budget over 72 hours, or ~$5 over the 24 the burst actually ran, before
+# data transfer and before the one mistake the budget has room for. This module exists only inside the window and `terraform destroy` is what ends
 # it; the $1 budget alert is the backstop, not the plan.
 #
 # This module is NOT included in envs/local — LocalStack does not implement EKS, and a
 # CI apply that fails on an unimplemented API teaches nothing.
 
 locals {
+  # On-demand Linux rates in ap-south-1, for the estimate output only. Nothing here reads
+  # AWS pricing at plan time: a cost estimate that needs a network call is one more thing
+  # to fail inside a metered window.
+  node_hourly_usd = {
+    "t3.small"       = 0.0224
+    "c7i-flex.large" = 0.0848
+    "m7i-flex.large" = 0.1008
+  }
+
   # Where the nodes land. Public by default, and that is a cost decision rather than a
   # security preference: private nodes need a NAT Gateway to pull images (~$3.24 over the
   # window plus data processing), while two public IPv4 addresses cost ~$0.72. The

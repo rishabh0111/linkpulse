@@ -14,6 +14,12 @@ spec:
       # Host namespaces, because the thing being measured is the host. This is the other
       # reason the monitoring namespace is `privileged` under Pod Security Admission
       # rather than `restricted`.
+      # Node-critical, so this schedules on every node even when it is full. On EKS a
+      # node accepts a fixed number of pods (11 on a t3.small, set by the VPC CNI), and
+      # ordinary pods filled two nodes before the DaemonSets were placed -- leaving those
+      # nodes with no metrics, silently, because a DaemonSet pod that cannot schedule is
+      # Pending rather than failed.
+      priorityClassName: system-node-critical
       hostNetwork: true
       hostPID: true
       dnsPolicy: ClusterFirstWithHostNet
