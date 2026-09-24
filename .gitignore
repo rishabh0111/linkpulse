@@ -19,6 +19,12 @@ crash.*.log
 !*.tfvars.example
 backend.hcl
 
+# Saved plans (`plan -out`). They hold the full configuration plus a state snapshot:
+# account ID, resource IDs, every attribute Terraform knows. Three were committed by a
+# broad `git add infra/terraform` during the burst and reached the public repository;
+# they carried no credentials (checked), but nothing in a plan is meant for git.
+*.tfplan
+
 # The lock file IS committed, deliberately — it is what pins provider versions to exactly
 # what was tested, and leaving it out would make "reproducible" a claim rather than a
 # property.

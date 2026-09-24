@@ -1,0 +1,85 @@
+{
+  "experiment": 3,
+  "title": "dependency outage (datastore unreachable)",
+  "events": [
+    {
+      "t": 1790258059.9594204,
+      "rel": 1,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-5dc697f88d-4x4nr', 'linkpulse-5dc697f88d-q5gz9']",
+      "value": null
+    },
+    {
+      "t": 1790258060.0554545,
+      "rel": 2,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1790258060.1231546,
+      "rel": 2,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "2.0 targets",
+      "value": null
+    },
+    {
+      "t": 1790258060.2563624,
+      "rel": 2,
+      "label": "ok: redirect path answers (404 for an unknown code)",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790258060.3170097,
+      "rel": 2,
+      "label": "ok: process reports ready on every pod",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790258060.3177295,
+      "rel": 2,
+      "label": "injecting: docker compose pause localstack",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790258189.5598822,
+      "rel": 131,
+      "label": "TIMEOUT waiting for linkpulse_ready == 0 on every pod (process view)",
+      "detail": "120s",
+      "value": null
+    },
+    {
+      "t": 1790258387.776237,
+      "rel": 329,
+      "label": "TIMEOUT waiting for 2 ready pods again",
+      "detail": "180s",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-5dc697f88d-4x4nr",
+      "linkpulse-5dc697f88d-q5gz9"
+    ],
+    "restartsAtStart": 0.0
+  },
+  "startedAt": 1790258058.4837487,
+  "startedIso": "2026-09-24T13:54:18+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1790258058.4840577
+    },
+    {
+      "name": "during: the outage",
+      "t": 1790258069.2391076
+    },
+    {
+      "name": "post: recovery",
+      "t": 1790258201.4673736
+    }
+  ]
+}

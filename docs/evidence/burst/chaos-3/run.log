@@ -1,0 +1,19 @@
+=== chaos-3 start 19:24:17
+== experiment 3: dependency outage (datastore unreachable) -- pre: the healthy state  [13:54:18]
+  T+   1s  ok: 2 ready application pods  -- ready: ['linkpulse-5dc697f88d-4x4nr', 'linkpulse-5dc697f88d-q5gz9']
+  T+   2s  ok: no critical alert firing  -- []
+  T+   2s  ok: prometheus is scraping the application  -- 2.0 targets
+  T+   2s  ok: redirect path answers (404 for an unknown code)
+  T+   2s  ok: process reports ready on every pod
+  T+   2s  injecting: docker compose pause localstack
+=== detached table-access from linkpulse-burst-irsa 19:24:28
+chaos: FAIL: timed out after 120s waiting for linkpulse_ready == 0 on every pod (process view)
+== experiment 3: dependency outage (datastore unreachable) -- during: the outage  [13:54:29]
+  T+ 131s  TIMEOUT waiting for linkpulse_ready == 0 on every pod (process view)  -- 120s
+=== during rc=1 19:26:29
+=== re-attached 19:26:37
+linkpulse-burst-table-access
+chaos: FAIL: timed out after 180s waiting for 2 ready pods again
+== experiment 3: dependency outage (datastore unreachable) -- post: recovery  [13:56:41]
+  T+ 329s  TIMEOUT waiting for 2 ready pods again  -- 180s
+=== post rc=1 19:29:48

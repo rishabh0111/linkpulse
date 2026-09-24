@@ -1,0 +1,151 @@
+{
+  "experiment": 5,
+  "title": "node loss (drain, then a stopped node)",
+  "events": [
+    {
+      "t": 1790256637.3121953,
+      "rel": 1,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-5dc697f88d-bdstz', 'linkpulse-5dc697f88d-q5gz9']",
+      "value": null
+    },
+    {
+      "t": 1790256637.397282,
+      "rel": 1,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1790256637.4606016,
+      "rel": 1,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "2.0 targets",
+      "value": null
+    },
+    {
+      "t": 1790256641.6308444,
+      "rel": 6,
+      "label": "ok: PDB allows exactly one disruption at two replicas",
+      "detail": "1",
+      "value": null
+    },
+    {
+      "t": 1790256642.9368773,
+      "rel": 7,
+      "label": "ok: the target node is Ready",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790256689.7372468,
+      "rel": 54,
+      "label": "moved 4 single-replica pods off ip-10-42-15-154.ap-south-1.compute.internal first",
+      "detail": "[('argocd', 'argocd-application-controller-0'), ('argocd', 'argocd-server-5d7b767558-nbgcf'), ('cert-manager', 'cert-manager-cainjector-798675974f-n6swd'), ('monitoring', 'cloudwatch-exporter-7596b99d4b-fv6mh')]",
+      "value": null
+    },
+    {
+      "t": 1790256690.8912542,
+      "rel": 55,
+      "label": "observers answering again",
+      "detail": "after 1s",
+      "value": null
+    },
+    {
+      "t": 1790256696.0744207,
+      "rel": 60,
+      "label": "a replica on ip-10-42-15-154.ap-south-1.compute.internal, 2 ready",
+      "detail": "after 3s",
+      "value": null
+    },
+    {
+      "t": 1790256699.7755306,
+      "rel": 64,
+      "label": "target: ip-10-42-15-154.ap-south-1.compute.internal",
+      "detail": "hosting ['linkpulse-5dc697f88d-bdstz']",
+      "value": null
+    },
+    {
+      "t": 1790256702.1335413,
+      "rel": 66,
+      "label": "kubectl drain ip-10-42-15-154.ap-south-1.compute.internal --pod-selector app.kubernetes.io/name=linkpulse",
+      "detail": "evicting ['linkpulse-5dc697f88d-bdstz']",
+      "value": null
+    },
+    {
+      "t": 1790256709.433393,
+      "rel": 73,
+      "label": "drain returned",
+      "detail": "node/ip-10-42-15-154.ap-south-1.compute.internal drained",
+      "value": null
+    },
+    {
+      "t": 1790256710.7816103,
+      "rel": 75,
+      "label": "ok: the node is cordoned",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790256713.9529285,
+      "rel": 78,
+      "label": "ok: no application pod remains on the node",
+      "detail": "{'?': ['linkpulse-5dc697f88d-4x4nr'], 'ip-10-42-16-30.ap-south-1.compute.internal': ['linkpulse-5dc697f88d-q5gz9']}",
+      "value": null
+    },
+    {
+      "t": 1790256895.7475226,
+      "rel": 260,
+      "label": "TIMEOUT waiting for 2 ready replicas again, on other nodes",
+      "detail": "180s",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-5dc697f88d-bdstz",
+      "linkpulse-5dc697f88d-q5gz9"
+    ],
+    "targetNode": "ip-10-42-15-154.ap-south-1.compute.internal",
+    "pdbDisruptionsAllowedAtStart": 1,
+    "singletonsMovedOffTarget": [
+      [
+        "argocd",
+        "argocd-application-controller-0"
+      ],
+      [
+        "argocd",
+        "argocd-server-5d7b767558-nbgcf"
+      ],
+      [
+        "cert-manager",
+        "cert-manager-cainjector-798675974f-n6swd"
+      ],
+      [
+        "monitoring",
+        "cloudwatch-exporter-7596b99d4b-fv6mh"
+      ]
+    ],
+    "podsByNodeAtStart": {
+      "ip-10-42-15-154.ap-south-1.compute.internal": [
+        "linkpulse-5dc697f88d-bdstz"
+      ],
+      "ip-10-42-16-30.ap-south-1.compute.internal": [
+        "linkpulse-5dc697f88d-q5gz9"
+      ]
+    },
+    "drainSeconds": 7
+  },
+  "startedAt": 1790256636.0433636,
+  "startedIso": "2026-09-24T13:30:36+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1790256636.0439377
+    },
+    {
+      "name": "during, first half: drain (voluntary, PDB-governed)",
+      "t": 1790256700.8657842
+    }
+  ]
+}

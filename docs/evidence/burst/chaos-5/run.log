@@ -1,0 +1,18 @@
+=== chaos-5 start 19:00:35
+== experiment 5: node loss (drain, then a stopped node) -- pre: the healthy state  [13:30:36]
+  T+   1s  ok: 2 ready application pods  -- ready: ['linkpulse-5dc697f88d-bdstz', 'linkpulse-5dc697f88d-q5gz9']
+  T+   1s  ok: no critical alert firing  -- []
+  T+   1s  ok: prometheus is scraping the application  -- 2.0 targets
+  T+   6s  ok: PDB allows exactly one disruption at two replicas  -- 1
+  T+   7s  ok: the target node is Ready
+  T+  54s  moved 4 single-replica pods off ip-10-42-15-154.ap-south-1.compute.internal first  -- [('argocd', 'argocd-application-controller-0'), ('argocd', 'argocd-server-5d7b767558-nbgcf'), ('cert-manager', 'cert-manager-cainjector-798675974f-n6swd'), ('monitoring', 'cloudwatch-exporter-7596b99d4b-fv6mh')]
+  T+  55s  observers answering again  -- after 1s
+  T+  60s  a replica on ip-10-42-15-154.ap-south-1.compute.internal, 2 ready  -- after 3s
+  T+  64s  target: ip-10-42-15-154.ap-south-1.compute.internal  -- hosting ['linkpulse-5dc697f88d-bdstz']
+chaos: FAIL: timed out after 180s waiting for 2 ready replicas again, on other nodes
+== experiment 5: node loss (drain, then a stopped node) -- during, first half: drain (voluntary, PDB-governed)  [13:31:40]
+  T+  66s  kubectl drain ip-10-42-15-154.ap-south-1.compute.internal --pod-selector app.kubernetes.io/name=linkpulse  -- evicting ['linkpulse-5dc697f88d-bdstz']
+  T+  73s  drain returned  -- node/ip-10-42-15-154.ap-south-1.compute.internal drained
+  T+  75s  ok: the node is cordoned
+  T+  78s  ok: no application pod remains on the node  -- {'?': ['linkpulse-5dc697f88d-4x4nr'], 'ip-10-42-16-30.ap-south-1.compute.internal': ['linkpulse-5dc697f88d-q5gz9']}
+  T+ 260s  TIMEOUT waiting for 2 ready replicas again, on other nodes  -- 180s

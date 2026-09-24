@@ -6,7 +6,7 @@ versus merely written. Updated at the end of each phase.
 Plan of record: `../plan/linkpulse-plan.md`. Phase numbering follows the plan's §7 Order
 of Work.
 
-**Status:** Phases 0–9 and 11 complete. Phase 10 (the AWS burst) is under way: the account exists and the free checklist is being worked through (see the Phase 10 section). Nothing metered has started.
+**Status:** All phases complete. Phase 10, the AWS burst, ran for 12 hours on 2026-09-24 against EKS and real DynamoDB, and was torn down the same evening.
 
 The repository is on GitHub, and **CI has passed end to end** — run 7, all eight jobs, a 53-minute e2e job through the load baseline, chaos 3, 1, 4 and 5, and the destroy-and-restore backup. It took seven runs. Five defects were found on the way, each hidden behind the one before, and three were the same kind: a step reporting success after failing (k6's summary export, `k3d image import`, and this repository's own `phase || recover` chaos steps). Run 8, carrying the last of those fixes, passed too, and its log was checked the same way: no hidden failures, and each chaos recovery ran exactly once.
 
@@ -1496,7 +1496,7 @@ command in the runbooks is a task that exists in `mise.toml` today.
 
 ---
 
-## Phase 10 — The AWS burst 🟡 (in progress: free checklist; the metered window has not opened)
+## Phase 10 — The AWS burst ✅ (run 2026-09-24: 12 hours of EKS against real DynamoDB, torn down the same evening)
 
 **The account.** A new account on AWS's **Free plan** (created September 2026): $100 of
 sign-up credit, $180 after four of the five credit activities, which were done through the
@@ -1580,6 +1580,104 @@ as the Windows runs; this host's copies were not committed.
 Every `terraform apply` against the real account is run from a saved plan that was read
 first. Apply and plan are separate steps here, not one command.
 
+
+### The window
+
+Agreed down from 72 hours to 24 before it opened: the experiments need three or four,
+and the rest only proves stability. In the end it ran about 12 hours, 07:37 to about
+19:55 IST, and the cluster sat idle and healthy for nine of them (no restarts, no
+evictions). Evidence: `docs/evidence/burst/`, whose README records every run, the
+failed ones included.
+
+**What passed on real AWS:** EKS on a Free *plan* account (the open question); the app
+through the ALB with IRSA, which also settles `automountServiceAccountToken: false`
+alongside IRSA, a loose end that had been reasoned and never observed; smoke A1–A7
+against real DynamoDB; observability 29/29; the CloudWatch exporter on its first run;
+the k6 baseline (2,667 requests, 0 failed, redirect p95 83 ms, p99 155 ms, about 28 ms
+of it the laptop-to-Mumbai round trip); and chaos 1 with nothing injected.
+
+**Chaos 1 is the result the project was built for.** The table spent its burst credit
+first (throttling began about 5 minutes in, as the 300 s credit predicts), then DynamoDB
+throttled 6.6 writes/s. Both alerts fired 30 s after the first drop, and users saw none
+of it: 7,202 requests, 0 failed, redirect p99 7 ms against 5 ms clean. CloudWatch's own
+view (`docs/evidence/burst/chaos-1/cloudwatch-throttling.png`) shows consumed WCU at
+40/s while the credit lasts, then clamped to exactly the provisioned 20 as throttle
+events rise. One thing the data model did not predict: CloudWatch attributes almost all
+the throttled writes to PutItem (the per-click event records, 1,304/min at peak), not to
+UpdateItem on the hot aggregate (14/min).
+
+**Chaos 3 and 5 failed, and both failures are findings.**
+- *5, drain:* the evicted replica's replacement never scheduled. The other three nodes
+  were at the 11-pod cap, and the only free slots were on the node being drained. The
+  PDB limited how many pods left; it cannot make room for them. The app ran on one
+  replica for about 4 minutes with 0 5xx. The loss half was not run, because it would
+  only restate this while taking redundancy away again.
+- *3, IAM revoked:* one pod was denied 80 s after the detach, the other never within the
+  two minutes, and the denied pod stayed denied for 4 minutes after the re-attach. IAM
+  propagation is eventually consistent per session. The experiment's "every pod goes
+  unready together" is a LocalStack assumption.
+
+Chaos 2 and 4 were not run: 2 drives the local Gitea remote, and 4 needs a debug
+endpoint only the local overlay exposes.
+
+### Teardown
+
+`burst-teardown.sh` emptied the cluster and confirmed no ALB or target group remained
+before anything was destroyed. The table was backed up first (19,482 items, 389.5 RCU
+over 54 s, inside the free read capacity). The destroy removed the 20 burst resources and
+nothing else, and `metered-resources.py --expect-none` passes. The EKS control-plane log
+group, which Terraform does not own, was deleted by hand. The account is back to its
+always-free baseline: the table at 25/25, the VPC, the state bucket and three budgets.
+
+The laptop slept during the destroy, so `DeleteCluster` went out 2 h 48 m after
+`DeleteNodegroup` and the control plane billed for that time too, about $0.28. The
+runbook now says to keep the machine awake.
+
+**Cost:** Cost Explorer showed $0.27 on the night, only the first hours because of its
+lag. The estimate for the whole burst is $3–4 of credit against the $25 ceiling. Confirm
+it from the next day's `mise run cost-report`, and fill in the exact figure here.
+
+### Found only on real AWS
+
+Thirteen defects, each invisible to every local run and to CI, because k3d, LocalStack
+and a Docker network do not have the property that broke:
+
+1. *Plan-time unknown:* the IRSA resources were counted on an ARN the same apply creates
+   ("Invalid count argument"). Now a `create_irsa` flag.
+2. *HTTPS listener with no certificate:* the ALB controller refused to build any load
+   balancer. The aws overlay is HTTP-only now.
+3. *No metrics-server on EKS:* the HPA read `cpu: <unknown>`. Vendored at
+   `platform/metrics-server/`.
+4. *Pod cap, not CPU or memory:* 11 pods per t3.small under the VPC CNI; two nodes could
+   not hold about 30 pods.
+5. *Free plan instance types:* t3.medium was refused after Terraform had already
+   destroyed the old node group, leaving the cluster with no nodes for a few minutes. I
+   should have checked eligibility first; the eligible list is now in
+   `modules/eks/variables.tf`. Four t3.small won on cost.
+6. *The cost estimate hardcoded t3.small's price.* Now a lookup that fails high.
+7. *DaemonSets without priority:* ordinary pods filled two nodes first, and those nodes
+   silently had no metrics or logs. Now `system-node-critical`.
+8. *ArgoCD deadlock:* it would not sync the DaemonSet fix until the DaemonSets were
+   healthy, and they could not be. Broken once by hand.
+9. *Monitoring ingresses kept `traefik`,* which the ALB webhook rejects; Grafana,
+   Prometheus and Alertmanager were unreachable all day while their pods ran. The app
+   overlay patched this; monitoring never did.
+10. *Rule order on the shared ALB:* the app's catch-all sorted ahead of the monitoring
+    host rules. `group.order: 100`.
+11. *The CloudWatch exporter returned NaN for everything:* a 60 s window misses the
+    five-minute provisioned-capacity points, and idle counters publish nothing.
+    `length: 300`, `nilToZero` on the counters only.
+12. *No dashboard used the exporter.* Panel 19 on the overview now does.
+13. *The Loki check wanted logs from the last 30 minutes,* and a healthy app is silent.
+    Now 24 hours.
+
+Also noticed and left: both CoreDNS replicas landed on one node (the EKS add-on prefers
+spreading and does not require it), so losing that node would have taken out cluster DNS.
+
+"The same manifests deploy to EKS unchanged" was not true on the day. Items 2, 7, 9,
+10 and 11 are manifest changes. That is the point of the burst: the claim is now
+measured instead of reasoned, and the manifests are what they had to be.
+
 ## Remaining phases (plan §7)
 
 | # | Phase | State |
@@ -1589,7 +1687,7 @@ first. Apply and plan are separate steps here, not one command.
 | 7 | Observability: Prometheus, Loki, Grafana JSON, CloudWatch → DynamoDB metrics, Discord alerts | ✅ done |
 | 8 | Automation scripts: bootstrap, teardown, backup, cost report; TLS via local CA (+ Sealed Secrets) | ✅ done |
 | 9 | k6 baseline, then chaos 1–5 exploratory → codified with observed thresholds | ✅ done |
-| 10 | The AWS burst (72h, $25), runbook written **before** the clock starts | in progress — free checklist done except cost allocation tags (waiting on AWS tag discovery) |
+| 10 | The AWS burst (72h, $25), runbook written **before** the clock starts | ✅ done — 12 hours on EKS, 2026-09-24 |
 | 11 | postmortem, runbook, case study, README, architecture diagram | ✅ done |
 
 ## Known loose ends

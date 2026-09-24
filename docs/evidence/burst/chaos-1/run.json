@@ -1,0 +1,209 @@
+{
+  "experiment": 1,
+  "title": "DynamoDB write throttling on a hot link",
+  "events": [
+    {
+      "t": 1790256984.4266384,
+      "rel": 1,
+      "label": "ok: 2 ready application pods",
+      "detail": "ready: ['linkpulse-5dc697f88d-4x4nr', 'linkpulse-5dc697f88d-q5gz9']",
+      "value": null
+    },
+    {
+      "t": 1790256984.5121472,
+      "rel": 1,
+      "label": "ok: no critical alert firing",
+      "detail": "[]",
+      "value": null
+    },
+    {
+      "t": 1790256984.5718794,
+      "rel": 1,
+      "label": "ok: prometheus is scraping the application",
+      "detail": "2.0 targets",
+      "value": null
+    },
+    {
+      "t": 1790256984.6928573,
+      "rel": 2,
+      "label": "ok: no clicks being dropped for throttling",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790256984.7544422,
+      "rel": 2,
+      "label": "ok: LinkpulseClicksDropped not firing",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790256984.7553012,
+      "rel": 2,
+      "label": "starting load: k6 throttle.js, 20 redirects/s on one link",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790257037.0649846,
+      "rel": 54,
+      "label": "redirects arriving at >= 15/s",
+      "detail": "after 51s",
+      "value": null
+    },
+    {
+      "t": 1790257082.1941116,
+      "rel": 99,
+      "label": "ok: clean window: clicks recorded at >= 15/s",
+      "detail": "20.0/s",
+      "value": null
+    },
+    {
+      "t": 1790257082.2599487,
+      "rel": 99,
+      "label": "ok: clean window: nothing dropped",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790257082.2610164,
+      "rel": 99,
+      "label": "no injection: waiting for the real table to throttle on its own",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790257290.962495,
+      "rel": 308,
+      "label": "clicks dropped with reason=throttled (rate > 0)",
+      "detail": "after 209s",
+      "value": 0.560362962962963
+    },
+    {
+      "t": 1790257321.4144168,
+      "rel": 338,
+      "label": "LinkpulseClicksDropped{reason=throttled} firing",
+      "detail": "after 30s",
+      "value": null
+    },
+    {
+      "t": 1790257321.4840772,
+      "rel": 338,
+      "label": "LinkpulseDynamoThrottled firing",
+      "detail": "after 0s",
+      "value": null
+    },
+    {
+      "t": 1790257321.9171443,
+      "rel": 339,
+      "label": "ok: DynamoDB reporting throttled calls",
+      "detail": "6.6/s",
+      "value": null
+    },
+    {
+      "t": 1790257321.9180264,
+      "rel": 339,
+      "label": "ok: redirects still arriving at >= 15/s",
+      "detail": "20.0/s",
+      "value": null
+    },
+    {
+      "t": 1790257321.9192262,
+      "rel": 339,
+      "label": "ok: no user-facing 5xx at all",
+      "detail": "ratio 0",
+      "value": null
+    },
+    {
+      "t": 1790257321.920143,
+      "rel": 339,
+      "label": "ok: redirect p99 within 250ms (alert line, or 2x the clean window)",
+      "detail": "7ms vs clean 5ms",
+      "value": null
+    },
+    {
+      "t": 1790257321.9220185,
+      "rel": 339,
+      "label": "recovering: load ends; the table's bucket refills",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790257409.7076435,
+      "rel": 427,
+      "label": "drops back to 0/s",
+      "detail": "after 88s",
+      "value": null
+    },
+    {
+      "t": 1790257414.843855,
+      "rel": 432,
+      "label": "LinkpulseClicksDropped resolved",
+      "detail": "after 5s",
+      "value": null
+    },
+    {
+      "t": 1790257416.074121,
+      "rel": 433,
+      "label": "ok: k6: every redirect was a 302",
+      "detail": "",
+      "value": null
+    },
+    {
+      "t": 1790257416.075112,
+      "rel": 433,
+      "label": "ok: k6: no failed requests",
+      "detail": "",
+      "value": null
+    }
+  ],
+  "facts": {
+    "readyPodsAtStart": [
+      "linkpulse-5dc697f88d-4x4nr",
+      "linkpulse-5dc697f88d-q5gz9"
+    ],
+    "clickShards": 16.0,
+    "cleanWindow": {
+      "redirectP99Ms": 4.9,
+      "clicksRecordedPerS": 20.0
+    },
+    "secondsToFirstDrop": 209,
+    "secondsToAlert": 239,
+    "throttleWindow": {
+      "redirectP99Ms": 6.7,
+      "redirectsPerS": 20.0,
+      "clicksDroppedPerS": 6.6,
+      "clicksRecordedPerS": 12.5,
+      "dynamoThrottlesPerS": 6.6,
+      "errorRatio": 0
+    },
+    "throttleHeldSeconds": 240,
+    "secondsToResolveAfterRecovery": 88,
+    "k6": {
+      "requests": 7202,
+      "p50Ms": 9.914265,
+      "p95Ms": 24.591364,
+      "p99Ms": 56.741521,
+      "failedRatio": 0,
+      "not302": 0
+    }
+  },
+  "startedAt": 1790256983.15408,
+  "startedIso": "2026-09-24T13:36:23+00:00",
+  "phases": [
+    {
+      "name": "pre: the healthy state",
+      "t": 1790256983.1546059
+    },
+    {
+      "name": "during: load, then the throttle",
+      "t": 1790256986.314603
+    },
+    {
+      "name": "post: the load's own verdict",
+      "t": 1790257416.0717013
+    }
+  ],
+  "finishedAt": 1790257416.0759583,
+  "durationS": 433
+}

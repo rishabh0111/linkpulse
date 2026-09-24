@@ -1,0 +1,228 @@
+{
+    "metrics": {
+        "data_received": {
+            "count": 739493,
+            "rate": 6074.53099997175
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 2667,
+            "thresholds": {
+                "rate<0.005": false
+            },
+            "value": 0
+        },
+        "vus": {
+            "value": 0,
+            "min": 0,
+            "max": 5
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "vus_max": {
+            "value": 25,
+            "min": 25,
+            "max": 25
+        },
+        "http_reqs": {
+            "count": 2667,
+            "rate": 21.907947981826272
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0
+        },
+        "http_req_waiting": {
+            "p(95)": 83.81519349999985,
+            "p(99)": 155.61029822000032,
+            "avg": 38.23272711511063,
+            "min": 27.466654,
+            "med": 31.44546,
+            "max": 367.978575,
+            "p(90)": 44.560371200000006
+        },
+        "http_req_receiving": {
+            "min": 0.050914,
+            "med": 0.188502,
+            "max": 0.822522,
+            "p(90)": 0.230086,
+            "p(95)": 0.24420129999999993,
+            "p(99)": 0.2740153200000001,
+            "avg": 0.18457103712036044
+        },
+        "iterations": {
+            "rate": 21.70258663966442,
+            "count": 2642
+        },
+        "data_sent": {
+            "count": 382592,
+            "rate": 3142.7842648154774
+        },
+        "linkpulse_redirect_duration": {
+            "p(99)": 154.855214,
+            "avg": 38.124714600583175,
+            "min": 27.649988,
+            "med": 31.503777,
+            "max": 368.236291,
+            "p(90)": 44.087129,
+            "p(95)": 83.043481,
+            "thresholds": {
+                "p(95)<150": false,
+                "p(99)<250": false
+            }
+        },
+        "linkpulse_redirect_not_302": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_sending": {
+            "avg": 0.049708613423322015,
+            "min": 0.021511,
+            "med": 0.047702,
+            "max": 0.547976,
+            "p(90)": 0.058597,
+            "p(95)": 0.07504429999999994,
+            "p(99)": 0.10812478000000021
+        },
+        "checks": {
+            "passes": 5284,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_duration{expected_response:true}": {
+            "max": 368.236291,
+            "p(90)": 44.797236000000005,
+            "p(95)": 84.01638499999984,
+            "p(99)": 155.85492066000032,
+            "avg": 38.46700676565436,
+            "min": 27.649988,
+            "med": 31.693886
+        },
+        "iteration_duration": {
+            "p(99)": 155.14016565000009,
+            "avg": 39.14135218092339,
+            "min": 28.20404,
+            "med": 32.193839499999996,
+            "max": 368.654572,
+            "p(90)": 47.35041500000002,
+            "p(95)": 83.97295459999991
+        },
+        "http_req_connecting": {
+            "avg": 0.4480221998500188,
+            "min": 0,
+            "med": 0,
+            "max": 458.161528,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0
+        },
+        "http_req_duration": {
+            "med": 31.693886,
+            "max": 368.236291,
+            "p(90)": 44.797236000000005,
+            "p(95)": 84.01638499999984,
+            "p(99)": 155.85492066000032,
+            "avg": 38.46700676565436,
+            "min": 27.649988
+        },
+        "linkpulse_graphql_duration": {
+            "p(99)": 144.44167999999985,
+            "avg": 40.75782638589211,
+            "min": 29.630627,
+            "med": 34.603674,
+            "max": 250.976351,
+            "p(90)": 47.226577,
+            "p(95)": 83.425025,
+            "thresholds": {
+                "p(95)<500": false
+            }
+        },
+        "http_req_blocked": {
+            "avg": 0.46926031571053056,
+            "min": 0.007543,
+            "med": 0.018298,
+            "max": 460.973066,
+            "p(90)": 0.021372,
+            "p(95)": 0.022978,
+            "p(99)": 0.34843018000001047
+        }
+    },
+    "setup_data": {
+        "codes": [
+            "0VYGQYw",
+            "KrkgAf0",
+            "052xl4R",
+            "eGvoplI",
+            "TgeHQWr",
+            "dARD1LK",
+            "9mYFvRc",
+            "SBv0HtK",
+            "a4IGbP2",
+            "nCTMRzW",
+            "fGE9oJD",
+            "l6Z9oo0",
+            "ZxHWMRr",
+            "f1VqmdJ",
+            "c9tn11J",
+            "E7XxDT7",
+            "J1HU52g",
+            "wKbCcsB",
+            "DiwXUrD",
+            "jc4YSZz",
+            "86tvC5D",
+            "siKnO4W",
+            "rePIjQW",
+            "WdVe20m",
+            "lYfUDuX"
+        ]
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "redirect is 302": {
+                    "name": "redirect is 302",
+                    "path": "::redirect is 302",
+                    "id": "bcc9dbd7f2d7e765da392b0e167fa713",
+                    "passes": 2401,
+                    "fails": 0
+                },
+                "Location is the long URL": {
+                    "passes": 2401,
+                    "fails": 0,
+                    "name": "Location is the long URL",
+                    "path": "::Location is the long URL",
+                    "id": "100eeb4f984661fe8d99de9405ee85b3"
+                },
+                "graphql is 200": {
+                    "fails": 0,
+                    "name": "graphql is 200",
+                    "path": "::graphql is 200",
+                    "id": "cd8e0f796cffbb69e55b3a28c0edc0e5",
+                    "passes": 241
+                },
+                "graphql has no errors": {
+                    "name": "graphql has no errors",
+                    "path": "::graphql has no errors",
+                    "id": "a51792f93b5c8e532ce92a5e740eaace",
+                    "passes": 241,
+                    "fails": 0
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}

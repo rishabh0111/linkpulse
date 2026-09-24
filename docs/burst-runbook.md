@@ -162,6 +162,22 @@ cluster to disappear — the step that prevents the classic orphaned-ALB bill), 
 `metered -- --expect-none` (must pass), then a final `cost-report`. The always-free
 environment stays. Check the next day's cost report reads $0.00 for the day.
 
+Learned on 2026-09-24:
+
+- **Keep the machine awake until the destroy returns.** Terraform deletes the node
+  group and only then the cluster. The laptop slept four minutes into the node group's
+  deletion. AWS finished that server-side within minutes, but `DeleteCluster` was not
+  sent until the laptop woke 2 h 48 m later (CloudTrail: `DeleteNodegroup` 14:10:48 UTC,
+  `DeleteCluster` 16:59:19 UTC), and the control plane billed the whole time. Disable
+  sleep for the teardown, or run it from a machine that does not sleep.
+- **Delete `/aws/eks/<cluster>/cluster` afterwards.** EKS creates the control-plane log
+  group itself, with no retention, and `terraform destroy` does not know about it.
+  `metered-resources.py` does not look at log groups, so this check is manual:
+  `aws logs describe-log-groups`.
+- The ALB the controller creates carries none of Terraform's default tags, so its cost
+  lands under "(untagged)" in the by-environment report. An
+  `alb.ingress.kubernetes.io/tags` annotation on the Ingress would attribute it.
+
 ## After the window
 
 - Commit everything under `docs/evidence/*-eks` and `docs/evidence/cost/`.
