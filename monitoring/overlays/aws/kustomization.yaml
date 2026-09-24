@@ -27,6 +27,11 @@ resources:
   - sealed/grafana-admin.yaml
 
 patches:
+  # One patch, three Ingresses: the class and the ALB annotations are identical for all of
+  # them, so the target selects by kind rather than naming each.
+  - target:
+      kind: Ingress
+    path: patch-ingress.yaml
   - target:
       kind: Deployment
       name: grafana

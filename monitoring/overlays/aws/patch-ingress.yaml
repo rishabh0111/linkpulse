@@ -1,0 +1,29 @@
+# The three monitoring Ingresses, moved onto the ALB.
+#
+# The base declares ingressClassName: traefik, which is what k3s runs. On EKS there is no
+# such IngressClass and the ALB controller's validating webhook rejects the object
+# outright: "invalid ingress class: IngressClass.networking.k8s.io \"traefik\" not found".
+# ArgoCD retried five times and left the monitoring app OutOfSync with Grafana,
+# Prometheus and Alertmanager unreachable -- while every workload behind them ran fine, so
+# the cluster looked healthy.
+#
+# k8s/manifests/overlays/aws patches exactly this field for the application's Ingress. The
+# monitoring overlay did not, and nothing local could notice: k3d has a traefik class, so
+# the base applies there unchanged. Found on the burst cluster.
+#
+# group.name matches the application's Ingress, so all four share ONE load balancer. An
+# ALB bills by the hour per balancer; four would quadruple that line of the budget for
+# nothing. The host rules stay as they are: the ALB routes by Host header, so
+# `curl -H 'Host: grafana.localtest.me' http://<alb>` reaches Grafana, which is exactly
+# what scripts/observability-check.py does with --ingress and --domain.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: PLACEHOLDER
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/group.name: linkpulse
+spec:
+  ingressClassName: alb
