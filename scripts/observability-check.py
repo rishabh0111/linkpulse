@@ -257,14 +257,20 @@ def main() -> int:
     check("ready (via Grafana proxy)", loki_ready)
 
     def loki_logs():
+        # A 24-hour window, not 30 minutes. The application logs at startup and on
+        # trouble, and is otherwise silent -- so on a cluster that has been healthy for a
+        # while there is nothing recent to find, however well shipping works. The burst
+        # cluster failed this check after nine quiet hours, with its startup lines sitting
+        # in Loki the whole time. The fact under test is that logs are queryable by label
+        # and JSON field; recency was an accident of only ever checking fresh clusters.
         now = time.time_ns()
         q = urllib.parse.urlencode({
             "query": '{app="linkpulse"} | json | level!=""',
-            "start": str(now - 30 * 60 * 10**9), "end": str(now), "limit": "5",
+            "start": str(now - 24 * 3600 * 10**9), "end": str(now), "limit": "5",
         })
         data = c.json("grafana", "/api/datasources/proxy/uid/loki/loki/api/v1/query_range?" + q)
         streams = data["data"]["result"]
-        assert streams, "no application log streams in the last 30m"
+        assert streams, "no application log streams in the last 24h"
         n = sum(len(s["values"]) for s in streams)
         return f"{len(streams)} streams, {n} lines sampled"
     check("application logs are queryable by label and JSON field", lambda: retry(loki_logs, args.patience, 5))
