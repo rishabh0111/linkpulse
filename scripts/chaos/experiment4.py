@@ -177,7 +177,16 @@ def kill_once(pod: str, run: c.Run, hold_for_alert: bool, during_backoff=None) -
         during_backoff(before)
     c.wait_for(run, f"{pod} restarted (restart count {before:.0f} -> {before + 1:.0f})",
                lambda: restarts_of(pod) >= before + 1, timeout=180, interval=3)
-    reason = last_termination(pod)
+    # The kubelet updates restartCount and lastState separately, so the instant the count
+    # moves the reason can still be empty. A single read here failed CI once (run
+    # 36031979330, "OOMKilled: None" on the second kill, observed 0 s after the restart)
+    # while three other runs that day passed. Poll briefly for the reason; a wrong reason,
+    # or none after 30 s, still fails the check below.
+    try:
+        _, reason = c.wait_for(run, f"{pod} termination reason recorded", lambda: last_termination(pod),
+                               timeout=30, interval=1)
+    except c.ChaosError:
+        reason = None
     c.check(run, "last termination reason is OOMKilled", reason == "OOMKilled", str(reason))
 
 

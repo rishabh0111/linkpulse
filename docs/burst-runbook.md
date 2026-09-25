@@ -97,7 +97,8 @@ Times are from `tf-burst-apply` returning. Every step names the check that gates
 
 **T+0 — cluster.** `mise run burst-up`: `aws-whoami`, `tf-burst-apply` (prompts; ~20
 minutes; read the plan — it must NOT touch the table), `burst-kubeconfig` (nodes Ready),
-`platform-apply` (cert-manager, the sealing key, the controller), `argocd-install`, the
+`platform-apply` (cert-manager, the sealing key, the controller), metrics-server (EKS ships
+none; without it the HPA reads `cpu: <unknown>`), `argocd-install`, the
 `bootstrap/aws` root app, and a wait for `linkpulse` Healthy. Check: `mise run
 argocd-status` shows five Applications Synced/Healthy at the substituted revision.
 Record `terraform output` in full — `estimated_hourly_usd` is the burn rate to hold

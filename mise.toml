@@ -177,6 +177,11 @@ run = [
   "mise run tf-burst-apply",
   "mise run burst-kubeconfig",
   "mise run platform-apply",
+  # EKS ships no metrics-server (k3s does, which is why the local cluster never needed
+  # one), and without it the HPA reads cpu: <unknown> and never scales. Applied here,
+  # not in platform-apply, because the local cluster must not get a second copy.
+  "docker compose run --rm kubectl apply -k platform/metrics-server",
+  "docker compose run --rm kubectl rollout status deploy/metrics-server -n kube-system --timeout=300s",
   "mise run argocd-install",
   "docker compose run --rm kubectl apply -k gitops/argocd/bootstrap/aws",
   "docker compose run --rm kubectl wait --for=create application/linkpulse -n argocd --timeout=300s",
