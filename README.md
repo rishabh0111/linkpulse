@@ -11,7 +11,7 @@
 ![Grafana](https://img.shields.io/badge/Grafana-F46800?style=flat&logo=grafana&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
 
-**[Full write-up](https://rishabh0111.github.io/blogs/breaking-a-url-shortener-on-purpose/)** ·
+**[Full write-up](https://rishabh0111.github.io/blogs/production-grade-devops-platform/)** ·
 [Chaos evidence](docs/evidence/) ·
 [The EKS run](docs/evidence/burst/README.md) ·
 [Data model](docs/data-model.md) ·
@@ -160,7 +160,7 @@ that waits for the load balancer to be released before destroying the cluster.
 ## Further reading
 
 Why it is built this way, and what running it on AWS found:
-[the full write-up](https://rishabh0111.github.io/blogs/breaking-a-url-shortener-on-purpose/).
+[the full write-up](https://rishabh0111.github.io/blogs/production-grade-devops-platform/).
 
 The design the rest serves: [`docs/data-model.md`](docs/data-model.md). The diagram:
 [`docs/architecture.md`](docs/architecture.md). What to do when each alert fires:

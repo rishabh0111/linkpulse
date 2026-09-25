@@ -1661,9 +1661,8 @@ was needed to read this bill, which had only one environment in it.
 On 2026-09-25 the narrative moved out of the repository, to match the other projects: the
 README is technical only (run, try, API, a claims-to-evidence table, configuration), and
 the story, including everything `docs/case-study.md` held, is a blog post drafted in the
-`limbo` repo for 2026-10-23, `breaking-a-url-shortener-on-purpose`. `docs/case-study.md`
-is deleted. The README links the write-up already, like `nostro-ledger`'s, so the link
-404s until the post ships.
+`limbo` repo, `production-grade-devops-platform`, publishing 2026-09-28. `docs/case-study.md`
+is deleted. The README links the write-up, which ships the same day.
 
 ### Found only on real AWS
 
