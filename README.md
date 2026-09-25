@@ -19,7 +19,7 @@ real DynamoDB.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
-  <img alt="LinkPulse architecture. Request path: user, then ingress with TLS, then the Go service, then one DynamoDB table. Inside the cluster, Prometheus scrapes the service and ArgoCD deploys it. Five chaos experiments induce failures and assert their alerts fire. Terraform creates four environments. On every push, CI runs tests, a Trivy gate and an end-to-end run on k3d, pushes the image to ghcr.io and pins it in the aws overlay, which ArgoCD picks up from git." src="docs/architecture-light.svg" width="100%">
+  <img alt="LinkPulse architecture. Request path: user, then the ingress with TLS (Traefik on k3d, an ALB on EKS), then the Go service, which the HPA scales between 2 and 6 pods, then one DynamoDB table. Inside the Kubernetes cluster, Prometheus scrapes the service and evaluates 13 alert rules, Alertmanager sends alerts to Discord, Grafana has 3 dashboards over Prometheus and Loki, Alloy ships pod logs to Loki, and ArgoCD deploys everything as an app of apps. Outside it, five chaos experiments and Terraform for four environments. On every push: GitHub Actions runs the tests and an end-to-end run on k3d, Trivy gates the image on HIGH and CRITICAL findings, the image goes to ghcr.io by digest, and a bot commit pins it in the aws overlay, which ArgoCD pulls from git." src="docs/architecture-light.svg" width="100%">
 </picture>
 
 Where to look first:
