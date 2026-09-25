@@ -4,187 +4,307 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LinkPulse</title>
+<meta name="color-scheme" content="light dark">
 <style>
+  /* Achromatic ledger: the chrome is ink and grey, and the only hue on the screen is a click.
+     System faces on purpose: the binary serves only "/", so there is nowhere to serve a font file from.
+     Every figure is set in the system monospace with tabular digits, so times and counts read as a ledger. */
   :root {
     color-scheme: light dark;
-    --ground:#fafaf8; --surface:#ffffff; --sunk:#f0efeb; --ink:#1a1a1a; --ink-2:#585752;
-    --line:#e0dfdb; --acc:#2f6f4e; --acc-hover:#255a3f; --acc-ink:#ffffff;
-    --err:#a3241b; --err-bg:#fbeeed; --warn:#7a4f00; --warn-bg:#fbf3e2;
-    --r:6px; --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:40px;
+    --ground:#f2f4f7; --surface:#ffffff; --raised:#eceef2; --border:#e1e4e9; --rule:#eef0f3;
+    --control:#c9ced6; --text:#0a0a0a; --muted:#596069; --faint:#9aa0a8; --trace:#c3c9d1;
+    /* Go cyan, as in docs/architecture-*.svg. --hue for marks (3:1+), --hue-ink for text in the hue (4.5:1+). */
+    --hue:#0083a3; --hue-ink:#00708c; --past:#8a8f97;
+    --primary:#141414; --on-primary:#ffffff; --secondary:#e3e6ea; --secondary-hover:#d6dae0;
+    --negative:#c4242a; --warning:#92400e; --notice-bg:#fffbeb; --notice-edge:#fde68a;
+    --r-card:8px; --r-ctl:6px; --gap:12px; --pad:24px; --ctl:40px;
+    --fs-title:16px; --fs-code:26px; --fs-kpi:36px; --fs-body:14px; --fs-small:12px;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Mono","SF Mono",Menlo,Consolas,monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --ground:#17181a; --surface:#1f2023; --sunk:#26282b; --ink:#e8e6e1; --ink-2:#a9a7a1;
-      --line:#34363a; --acc:#7fc0a0; --acc-hover:#9bd1b6; --acc-ink:#0f1a14;
-      --err:#f2b8b5; --err-bg:#3a1f1e; --warn:#e6c07a; --warn-bg:#33291a;
+      --ground:#0f0f10; --surface:#18181a; --raised:#222225; --border:#2a2a2d; --rule:#232326;
+      --control:#4a4a4f; --text:#f4f4f5; --muted:#a9a9ae; --faint:#6c6c72; --trace:#45454b;
+      --hue:#2fc4e6; --hue-ink:#2fc4e6; --past:#8c8c93;
+      --primary:#f4f4f5; --on-primary:#0f0f10; --secondary:#2c2c30; --secondary-hover:#38383d;
+      --negative:#f27a72; --warning:#f0b65a; --notice-bg:#26200f; --notice-edge:#5c4a1c;
     }
   }
   * { box-sizing:border-box; }
-  html { scrollbar-color:var(--line) var(--ground); }
-  body { margin:0; padding:var(--s6) var(--s4); color:var(--ink); background:var(--ground);
-         font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
-  ::selection { background:var(--acc); color:var(--acc-ink); }
-  main { max-width:880px; margin:0 auto; }
-  a { color:var(--acc); text-underline-offset:3px; }
-  a:hover { color:var(--acc-hover); }
-  :focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
-  code, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.92em; }
-  .num { font-variant-numeric:tabular-nums; }
-  .muted { color:var(--ink-2); }
-
-  h1 { font-size:28px; line-height:1.2; margin:0 0 var(--s2); letter-spacing:-0.01em; }
-  h2 { font-size:18px; margin:0; }
-  h3 { font-size:15px; margin:0 0 var(--s2); }
-  .lede { margin:0; max-width:62ch; color:var(--ink-2); }
-
-  .notice { margin:var(--s5) 0 0; padding:var(--s3) var(--s4); border-radius:var(--r);
-            background:var(--warn-bg); color:var(--warn); }
-  .notice strong { color:inherit; }
-
-  .how { list-style:none; counter-reset:how; display:grid; grid-template-columns:repeat(3,1fr);
-         gap:var(--s4); margin:var(--s5) 0; padding:0; }
-  .how li { counter-increment:how; display:flex; gap:var(--s3); align-items:baseline; color:var(--ink-2); }
-  .how li::before { content:counter(how); flex:none; display:inline-grid; place-items:center;
-                    width:24px; height:24px; border-radius:50%; background:var(--sunk);
-                    color:var(--ink); font-size:13px; font-weight:600; }
-  .how strong { color:var(--ink); }
-
-  .shorten { background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
-             padding:var(--s5); }
-  .shorten label { display:block; font-weight:600; margin-bottom:var(--s2); }
-  .field { display:flex; gap:var(--s2); flex-wrap:wrap; }
-  input { flex:1 1 320px; min-width:0; min-height:44px; font:inherit; padding:var(--s2) var(--s3);
-          color:var(--ink); background:var(--ground); border:1px solid var(--line); border-radius:var(--r); }
-  input::placeholder { color:var(--ink-2); }
-  input[aria-invalid="true"] { border-color:var(--err); }
-  .primary { min-height:44px; padding:0 var(--s5); font:inherit; font-weight:600; cursor:pointer;
-             color:var(--acc-ink); background:var(--acc); border:0; border-radius:var(--r); }
-  .primary:hover { background:var(--acc-hover); }
-  .primary:disabled { cursor:progress; opacity:.7; }
-  .hint { margin:var(--s2) 0 0; font-size:13px; color:var(--ink-2); }
-  .form-error { margin:var(--s3) 0 0; padding:var(--s2) var(--s3); border-radius:var(--r);
-                background:var(--err-bg); color:var(--err); }
-  .form-error:empty { display:none; }
-
-  .analytics { margin-top:var(--s6); }
-  .bar-head { display:flex; justify-content:space-between; align-items:baseline; gap:var(--s3);
-              flex-wrap:wrap; margin-bottom:var(--s3); }
-  .status { margin:0; font-size:13px; color:var(--ink-2); }
-  .status.warn { color:var(--warn); }
-
-  .panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:var(--s5); }
-  .empty { background:var(--sunk); border-radius:var(--r); padding:var(--s5); }
-  .empty p { margin:0; max-width:60ch; color:var(--ink-2); }
-  .empty.error { background:var(--err-bg); }
-  .empty.error h3, .empty.error p { color:var(--err); }
-
-  .label { display:block; font-size:13px; color:var(--ink-2); margin-bottom:var(--s1); }
-  .linkhead { display:flex; justify-content:space-between; gap:var(--s4); flex-wrap:wrap; align-items:flex-start; }
-  .linkhead .short { font-size:17px; word-break:break-all; }
-  .dest { margin:var(--s1) 0 0; font-size:13px; color:var(--ink-2); word-break:break-all; }
-  .actions { display:flex; gap:var(--s4); align-items:center; }
-  .textbtn { font:inherit; color:var(--acc); background:none; border:0; padding:var(--s2) 0; min-height:44px;
-             cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
-  .actions a { display:inline-flex; align-items:center; min-height:44px; }
-
-  .stats { display:grid; grid-template-columns:180px 1fr; gap:var(--s5); margin-top:var(--s5);
-           padding-top:var(--s5); border-top:1px solid var(--line); }
-  .big { display:block; font-size:40px; line-height:1.1; font-weight:650; }
-  .chart { margin:0; }
-  .cols { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; height:120px; align-items:end;
-          border-bottom:1px solid var(--line); }
-  .cols { position:relative; }
-  .chart-empty { position:absolute; inset:0 0 auto; margin:0; padding-top:40px; text-align:center;
-                 font-size:13px; color:var(--ink-2); }
-  .col { position:relative; height:100%; display:flex; align-items:flex-end; justify-content:center; outline-offset:0; }
-  .bar { width:min(36px,70%); background:var(--acc); border-radius:4px 4px 0 0; min-height:2px; }
-  .bar.zero { background:var(--line); }
-  .tip { position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%); white-space:nowrap;
-         font-size:12px; padding:2px var(--s2); border-radius:4px; background:var(--ink); color:var(--ground);
-         opacity:0; pointer-events:none; transition:opacity .12s ease-out; }
-  .col:hover .tip, .col:focus-visible .tip { opacity:1; }
-  .col:hover .direct, .col:focus-visible .direct { opacity:0; }
-  .col .direct { position:absolute; font-size:12px; color:var(--ink-2); }
-  .days { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-top:var(--s1);
-          font-size:12px; color:var(--ink-2); text-align:center; }
-  .chart figcaption { font-size:13px; color:var(--ink-2); margin-bottom:var(--s3); }
-
-  .recent { margin-top:var(--s5); }
-  .tablewrap { overflow-x:auto; }
-  table { width:100%; border-collapse:collapse; font-size:14px; }
-  th, td { text-align:left; padding:var(--s2); border-bottom:1px solid var(--line); white-space:nowrap; }
-  th { font-weight:500; color:var(--ink-2); font-size:13px; }
-  td.ref { white-space:normal; word-break:break-all; }
-
-  footer { margin-top:var(--s6); font-size:13px; color:var(--ink-2); }
-  footer p { margin:0 0 var(--s1); }
+  html { scrollbar-color:var(--control) var(--ground); }
+  body { margin:0; color:var(--text); background:var(--ground);
+         font:var(--fs-body)/1.45 var(--sans); -webkit-font-smoothing:antialiased; }
+  ::selection { background:var(--hue-ink); color:var(--surface); }
+  a { color:inherit; text-underline-offset:3px; }
+  :focus-visible { outline:2px solid var(--hue); outline-offset:2px; border-radius:2px; }
+  .fig { font-family:var(--mono); font-variant-numeric:tabular-nums; }
   .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  svg { display:block; }
 
-  @media (max-width:640px) {
-    body { padding:var(--s5) var(--s4); }
-    h1 { font-size:24px; }
-    .how { grid-template-columns:1fr; gap:var(--s2); }
-    .shorten, .panel { padding:var(--s4); }
-    .primary { flex:1 1 100%; }
-    .stats { grid-template-columns:1fr; }
-    .big { font-size:34px; }
+  /* Column: 1120 max. Loop row: 5fr 40 4fr 40 3fr inside 24px padding. Lower row: 2 x 554 + 12 = 1120. */
+  .wrap { max-width:1168px; margin:0 auto; padding:0 24px; }
+
+  /* Top bar */
+  .bar { display:flex; align-items:center; gap:24px; height:56px; }
+  .brand { display:flex; align-items:center; gap:8px; margin:0; font-size:var(--fs-title); font-weight:600; letter-spacing:-0.01em; }
+  .brand svg { color:var(--hue); }
+  .nav { display:flex; gap:20px; margin-left:auto; }
+  .nav a { color:var(--muted); text-decoration:none; }
+  .nav a:hover { color:var(--text); text-decoration:underline; }
+  .state { display:flex; align-items:center; gap:8px; margin:0; font-size:var(--fs-small); color:var(--muted); white-space:nowrap; }
+  .state[data-s="idle"] { display:none; }
+  .state i { width:8px; height:8px; border-radius:50%; background:var(--trace); flex:none; }
+  .state[data-s="live"] i { background:var(--hue); }
+  .state[data-s="stale"], .state[data-s="file"] { color:var(--warning); }
+  .state[data-s="stale"] i, .state[data-s="file"] i { background:var(--warning); }
+  .menu { display:none; position:relative; }
+  .menu summary { list-style:none; cursor:pointer; display:grid; place-items:center; width:44px; height:44px; margin-right:-10px; }
+  .menu summary::-webkit-details-marker { display:none; }
+  .menu div { position:absolute; right:0; top:44px; z-index:2; display:grid; min-width:180px; padding:6px;
+              background:var(--surface); border:1px solid var(--border); border-radius:var(--r-card);
+              box-shadow:0 8px 24px rgba(0,0,0,.12); }
+  .menu div a { padding:10px 12px; text-decoration:none; border-radius:var(--r-ctl); }
+  .menu div a:hover { background:var(--raised); }
+
+  .notice { margin:0 0 var(--gap); padding:10px 16px; border:1px solid var(--notice-edge); border-radius:var(--r-card);
+            background:var(--notice-bg); color:var(--warning); }
+  .notice code { font-family:var(--mono); font-size:13px; }
+
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-card); }
+  main { display:grid; gap:var(--gap); padding-bottom:40px; }
+  h2 { margin:0; font-size:var(--fs-body); font-weight:600; }
+  .label { display:block; margin:0 0 8px; font-weight:500; color:var(--muted); }
+
+  /* The loop: long URL -> short link -> clicks */
+  .loop { display:grid; grid-template-columns:minmax(0,5fr) 40px minmax(0,4fr) 40px minmax(0,3fr);
+          align-items:start; padding:var(--pad); }
+  .arrow { align-self:start; margin-top:36px; color:var(--trace); justify-self:center; transition:color .25s ease-out; }
+  .arrow.on { color:var(--text); }
+  .arrow.hot { color:var(--hue); }
+  .field { display:flex; gap:8px; }
+  input { flex:1 1 auto; min-width:0; height:var(--ctl); padding:0 12px; font:inherit; color:var(--text);
+          background:var(--surface); border:1px solid var(--control); border-radius:var(--r-ctl); }
+  input:hover { border-color:var(--muted); }
+  input[aria-invalid="true"] { border-color:var(--negative); box-shadow:inset 0 0 0 1px var(--negative); }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:var(--ctl); padding:0 16px;
+         font:inherit; font-weight:600; border:0; border-radius:var(--r-ctl); cursor:pointer; text-decoration:none; white-space:nowrap;
+         transition:background-color .15s ease-out, color .15s ease-out, transform .1s ease-out; }
+  .btn:active { transform:translateY(1px); }
+  .primary { color:var(--on-primary); background:var(--primary); }
+  .primary:hover { background:color-mix(in srgb, var(--primary) 82%, var(--ground)); }
+  .btn:disabled { cursor:progress; color:var(--on-primary); background:var(--muted); }
+  .secondary { color:var(--text); background:var(--secondary); }
+  .secondary:hover { background:var(--secondary-hover); }
+  .ferr { margin:8px 0 0; min-height:20px; color:var(--negative); font-size:13px; }
+  .ferr.warn { color:var(--warning); }
+
+  .short { min-width:0; }
+  .code { display:flex; align-items:baseline; min-width:0; height:var(--ctl); text-decoration:none; }
+  .code .host { color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:0 1 auto; }
+  .code b { font:500 var(--fs-code)/1 var(--mono); letter-spacing:-0.02em; flex:none; }
+  a.code:hover b { text-decoration:underline; text-decoration-thickness:2px; }
+  .slots { display:flex; gap:5px; margin-left:4px; }
+  .slots span { width:14px; height:2px; background:var(--trace); }
+  .code.gone b { color:var(--muted); text-decoration:line-through; text-decoration-thickness:2px; }
+  .acts { display:flex; gap:8px; margin-top:8px; }
+  .acts .btn { height:36px; padding:0 12px; font-weight:500; }
+  .acts .btn.primary { font-weight:600; }
+  .dest { margin:8px 0 0; font-size:var(--fs-small); color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gonemsg { margin:8px 0 0; color:var(--negative); font-size:13px; }
+
+  .kpi { display:flex; align-items:baseline; flex-wrap:wrap; column-gap:10px; min-height:var(--ctl); }
+  .kpi .big { font:500 var(--fs-kpi)/var(--ctl) var(--mono); font-variant-numeric:tabular-nums; letter-spacing:-0.03em; }
+  .kpi .delta { font-size:13px; color:var(--muted); }
+  .kpi .dash { font-size:var(--fs-body); line-height:var(--ctl); color:var(--muted); }
+  .total .sub { margin:8px 0 0; font-size:13px; color:var(--muted); }
+  .bump { display:inline-block; animation:bump .5s ease-out; }
+  @keyframes bump { from { transform:translateY(-6px); opacity:.2; } to { transform:none; opacity:1; } }
+
+  /* The pulse: the last 30 minutes, one spike per click */
+  .pulse { padding:20px var(--pad) 16px; }
+  .head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:12px; }
+  .head .muted { font-size:13px; color:var(--muted); }
+  .trace { position:relative; height:160px; }
+  .trace svg { width:100%; height:100%; overflow:visible; }
+  .trace .base { stroke:var(--trace); stroke-width:2; fill:none; }
+  .trace .base.off { stroke-dasharray:4 6; }
+  .trace .spike { stroke:var(--hue); stroke-width:2; fill:none; stroke-linejoin:round; stroke-linecap:round; transition:stroke-width .15s ease-out; }
+  .trace .spike.hl { stroke-width:3.5; }
+  .trace .spike.new { stroke-dasharray:1; stroke-dashoffset:1; animation:draw .7s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset:0; } }
+  .trace .tick { stroke:var(--rule); stroke-width:1; }
+  .trace .leader { stroke:var(--hue); stroke-width:1; }
+  .trace text { fill:var(--muted); font:var(--fs-small) var(--mono); font-variant-numeric:tabular-nums; }
+  .trace text.latest { fill:var(--hue-ink); font-weight:600; }
+  .trace text.latest.new { animation:arrive .5s ease-out; }
+  .trace .dot { fill:var(--hue); }
+  .trace .ring { fill:none; stroke:var(--hue); stroke-width:1.5; transform-box:fill-box; transform-origin:center;
+                 animation:ring 1.8s ease-out infinite; }
+  @keyframes ring { from { transform:scale(1); opacity:.9; } to { transform:scale(3.2); opacity:0; } }
+  .trace.idle .dot { fill:var(--muted); }
+  .trace.stale .dot, .trace.down .dot { fill:var(--warning); }
+  .trace.down .base { stroke:var(--warning); }
+  .trace.stale .spike, .trace.down .spike, .trace.stale .leader, .trace.down .leader { stroke:var(--past); }
+  .trace.stale text.latest, .trace.down text.latest { fill:var(--muted); }
+  .tmsg { position:absolute; left:0; top:0; margin:0; color:var(--warning); font-size:13px; }
+  .textbtn { font:inherit; font-weight:600; color:var(--text); background:none; border:0; padding:2px 0; margin-left:6px;
+             cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+  .textbtn:hover { text-decoration-thickness:2px; }
+
+  /* Per day and the feed */
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); }
+  .pair > .card { display:flex; flex-direction:column; padding:20px var(--pad); min-width:0; }
+  #days { position:relative; flex:1; min-height:200px; }
+  #days.flat { min-height:56px; }
+  .days svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .days .grid { stroke:var(--rule); }
+  .days .axis { stroke:var(--control); }
+  .days .axis.off { stroke-dasharray:4 6; }
+  .days rect { fill:var(--past); }
+  .days rect.today { fill:var(--hue); }
+  .days text { fill:var(--muted); font:var(--fs-small) var(--mono); font-variant-numeric:tabular-nums; }
+  .days text.v { fill:var(--text); }
+  .days text.day { font-family:var(--sans); }
+
+  table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  th { text-align:left; font-weight:400; font-size:var(--fs-small); color:var(--muted); padding:0 8px 8px 0; }
+  td { padding:0 8px 0 0; height:40px; border-top:1px solid var(--rule); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  th:first-child, td:first-child { width:30%; }
+  th:nth-child(2), td:nth-child(2) { width:20%; }
+  th:nth-child(3), td:nth-child(3) { width:16%; }
+  td .mk { display:inline-block; width:6px; height:6px; margin-right:8px; border-radius:50%; background:var(--trace); vertical-align:middle; }
+  tr.landed td .mk { background:var(--hue); }
+  tbody tr:hover td { background:var(--raised); }
+  tr.arrive { animation:arrive .4s ease-out; }
+  @keyframes arrive { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
+  .none { color:var(--muted); }
+  .ref2 { display:none; }
+  .empty { display:flex; align-items:center; height:44px; margin:0; padding:0 12px; border:1px dashed var(--control); border-radius:var(--r-ctl); color:var(--muted); }
+  .fmsg { margin:0 0 8px; color:var(--warning); font-size:13px; }
+  .empty .fmsg { margin:0; }
+  .more { margin:10px 0 0; font-size:var(--fs-small); color:var(--muted); }
+
+  @media (max-width:900px) {
+    .loop { grid-template-columns:1fr; gap:16px; }
+    .arrow { margin:0 0 0 8px; justify-self:start; transform:rotate(90deg); }
+    .pair { grid-template-columns:1fr; }
   }
-  @media (prefers-reduced-motion:reduce) { .tip { transition:none; } }
+  @media (min-width:641px) and (max-width:900px) {
+    .loop { grid-template-columns:minmax(0,3fr) 40px minmax(0,2fr); row-gap:8px; }
+    #f { grid-column:1 / -1; }
+    #a1 { grid-row:2; grid-column:1; }
+    #short { grid-row:3; grid-column:1; }
+    #total { grid-row:3; grid-column:3; }
+    #a2 { grid-row:3; grid-column:2; align-self:start; margin:36px 0 0; transform:none; justify-self:center; }
+  }
+  @media (max-width:640px) {
+    .wrap { padding:0 16px; }
+    .nav { display:none; }
+    .menu { display:block; }
+    .brand { margin-right:auto; }
+    .loop, .pulse, .pair > .card { padding:16px; }
+    .loop { gap:10px; }
+    .arrow { height:18px; }
+    .ferr:empty { display:none; }
+    .field { flex-direction:column; }
+    .btn { height:44px; }
+    .acts .btn { height:44px; flex:1; }
+    .trace { height:140px; }
+    /* On a phone the message takes its own 30px row above the plot instead of the label row. */
+    .tmsg { position:static; height:24px; margin-bottom:6px; }
+    .trace.down { height:170px; }
+    .trace.down svg { height:calc(100% - 30px); }
+    th:nth-child(4), td:nth-child(4) { display:none; }
+    th:first-child, td:first-child { width:42%; }
+    th:nth-child(2), td:nth-child(2) { width:32%; }
+    td { height:44px; }
+    td:first-child { height:auto; padding:10px 8px 10px 0; }
+    .ref2 { display:block; margin-left:14px; font:var(--fs-small) var(--sans); color:var(--muted); overflow:hidden; text-overflow:ellipsis; }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+    .trace .spike.new { stroke-dashoffset:0; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>LinkPulse</h1>
-    <p class="lede">A URL shortener with click analytics. Shorten a link, open it, and watch its
-      clicks arrive. The app is kept small on purpose: it is the workload for the
-      <a href="https://github.com/rishabh0111/linkpulse">deployment, monitoring and chaos platform</a> around it.</p>
+<div class="wrap">
+  <header class="bar">
+    <h1 class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 13h5l2-4 3 10 3-15 2 9h5"/></svg>
+      LinkPulse
+    </h1>
+    <nav class="nav" aria-label="Service">
+      <a href="/graphql">GraphQL</a><a href="/metrics">Metrics</a><a href="/healthz">Health</a>
+      <a href="https://github.com/rishabh0111/linkpulse">Source</a>
+    </nav>
+    <p class="state" id="state" data-s="idle"><i></i><span id="stamp"></span></p>
+    <details class="menu">
+      <summary aria-label="Menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></summary>
+      <div>
+        <a href="/graphql">GraphQL</a><a href="/metrics">Metrics</a><a href="/healthz">Health</a>
+        <a href="https://github.com/rishabh0111/linkpulse">Source</a>
+      </div>
+    </details>
+    <p class="sr" id="announce" aria-live="polite"></p>
   </header>
 
-  <p class="notice" id="offline" hidden><strong>No API behind this page.</strong> It was opened as a
-    file, so there is no service to call. Start the stack with <code>mise run dev</code> and open
-    <a href="http://linkpulse.localtest.me:8088/">linkpulse.localtest.me:8088</a>.</p>
+  <p class="notice" id="offline" hidden>Opened as a file, so there is no API to call. Run <code>mise run dev</code>
+    and open <a href="http://linkpulse.localtest.me:8088/">linkpulse.localtest.me:8088</a>.</p>
 
-  <ol class="how">
-    <li><span><strong>Shorten</strong> a long URL below.</span></li>
-    <li><span><strong>Open</strong> the short link. Each visit counts as a click.</span></li>
-    <li><span><strong>Watch</strong> the clicks arrive, refreshed every 3 seconds.</span></li>
-  </ol>
+  <main>
+    <section class="card loop" aria-label="Shorten and follow a link">
+      <form id="f" novalidate>
+        <label class="label" for="url">Long URL</label>
+        <div class="field">
+          <!-- A real value, not a placeholder: the first press of Shorten works. Selected on focus so pasting replaces it. -->
+          <input id="url" name="url" type="url" inputmode="url" autocomplete="url" spellcheck="false"
+                 value="https://rishabh0111.github.io/blogs/production-grade-devops-platform/" aria-describedby="ferr" required>
+          <button class="btn primary" id="go" type="submit">Shorten</button>
+        </div>
+        <p class="ferr" id="ferr" role="alert"></p>
+      </form>
 
-  <section class="shorten" aria-label="Shorten a URL">
-    <form id="f" novalidate>
-      <label for="url">Long URL</label>
-      <div class="field">
-        <input id="url" name="url" type="url" inputmode="url" autocomplete="url"
-               placeholder="https://example.com/a/long/path" aria-describedby="url-hint form-error" required>
-        <button class="primary" type="submit">Shorten link</button>
-      </div>
-      <p class="hint" id="url-hint">http and https only; other schemes are refused.</p>
-      <p class="form-error" id="form-error" role="alert"></p>
-    </form>
-  </section>
+      <svg class="arrow" id="a1" width="32" height="24" viewBox="0 0 32 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h26M21 5l7 7-7 7"/></svg>
 
-  <section class="analytics" aria-labelledby="h-analytics">
-    <div class="bar-head">
-      <h2 id="h-analytics">Analytics</h2>
-      <p class="status num" id="status" aria-live="polite"></p>
+      <div class="short" id="short"></div>
+
+      <svg class="arrow" id="a2" width="32" height="24" viewBox="0 0 32 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h26M21 5l7 7-7 7"/></svg>
+
+      <div class="total" id="total"></div>
+    </section>
+
+    <section class="card pulse" aria-labelledby="h-pulse">
+      <div class="head"><h2 id="h-pulse">Clicks as they land</h2><span class="muted" id="pulse-meta">Last 30 min</span></div>
+      <div class="trace" id="trace"></div>
+    </section>
+
+    <div class="pair">
+      <section class="card days" aria-labelledby="h-days">
+        <div class="head"><h2 id="h-days">Per day</h2><span class="muted">Last 7 days, UTC</span></div>
+        <div id="days"></div>
+      </section>
+      <section class="card feed" aria-labelledby="h-feed">
+        <div class="head"><h2 id="h-feed">Recent clicks</h2><span class="muted">Newest first</span></div>
+        <div id="feed"></div>
+      </section>
     </div>
-    <div id="out"></div>
-  </section>
-
-  <footer>
-    <p>The feed polls <code>recentClicks</code>; there is no subscription, by design.</p>
-    <p>Also served here: <a href="/graphql">/graphql</a>, <a href="/metrics">/metrics</a>,
-      <a href="/healthz">/healthz</a>, <a href="/readyz">/readyz</a>.</p>
-  </footer>
-</main>
+  </main>
+</div>
 
 <script>
 const POLL_MS = 3000;
 const DAYS = 7;
+const WINDOW_MS = 30 * 60 * 1000;
+const FEED_ROWS = 6;
+const RECENT_LIMIT = 50;
 const FILE = location.protocol === 'file:';
 const $ = id => document.getElementById(id);
-let current = null, timer = null, inflight = false, lastGood = null;
+/* arrived: clicks first seen on this poll (they animate in).
+   landed: every click that arrived since this page opened (they keep the hue in the feed). */
+const S = { down: false, link: null, stats: null, gone: null, stale: false, goodAt: null, seen: null,
+            arrived: new Set(), landed: new Set(), timer: null, inflight: false };
 
 class NetworkError extends Error {}
 
@@ -192,14 +312,8 @@ async function gql(query, variables) {
   if (FILE) throw new NetworkError('opened as a file');
   let res;
   try {
-    res = await fetch('/graphql', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query, variables })
-    });
-  } catch (e) {
-    throw new NetworkError(e.message);
-  }
+    res = await fetch('/graphql', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, variables }) });
+  } catch (e) { throw new NetworkError(e.message); }
   let body;
   try { body = await res.json(); } catch (e) { throw new Error('the API answered ' + res.status + ' without JSON'); }
   if (body.errors && body.errors.length) throw new Error(body.errors[0].message);
@@ -207,198 +321,360 @@ async function gql(query, variables) {
 }
 
 const LINK_FIELDS = 'code shortUrl longUrl';
-const STATS_FIELDS = 'totalClicks clicksByDay{ day count } recentClicks(limit:15){ at country uaClass referrer }';
+const STATS_FIELDS = 'totalClicks clicksByDay{ day count } recentClicks(limit:' + RECENT_LIMIT + '){ at country uaClass referrer }';
+
+/* ---------- actions ---------- */
+
+$('url').addEventListener('focus', e => e.target.select());
 
 $('f').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const input = $('url'), btn = e.target.querySelector('button');
+  const input = $('url'), btn = $('go');
   const value = input.value.trim();
-  setFormError('', false);
-  if (!value) { setFormError('Enter a URL to shorten, starting with http:// or https://.', true); return; }
-  btn.disabled = true;
-  btn.textContent = 'Shortening…';
+  formError('', false);
+  if (!value) { formError('Paste a URL that starts with http:// or https://.', true); input.focus(); return; }
+  btn.disabled = true; btn.textContent = 'Shortening';
   try {
     const d = await gql('mutation($u:String!){ shortenUrl(longUrl:$u){ ' + LINK_FIELDS + ' } }', { u: value });
-    showLink(d.shortenUrl, null);
+    S.down = false;
     history.replaceState(null, '', '#' + d.shortenUrl.code);
-    input.value = '';
+    follow(d.shortenUrl, null);
   } catch (err) {
-    if (err instanceof NetworkError) setFormError(unreachable(), false);
-    else setFormError('Not shortened: ' + err.message, true);
+    S.down = err instanceof NetworkError;
+    if (S.down) formError(unreachable(), false);
+    else formError('Refused: ' + err.message, true);
+    renderAll();
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Shorten link';
+    btn.disabled = false; btn.textContent = 'Shorten';
   }
 });
 
 // invalid marks the input itself as the problem; an unreachable API is not the input's fault.
-function setFormError(msg, invalid) {
-  $('form-error').textContent = msg;
+function formError(msg, invalid) {
+  $('ferr').textContent = msg;
+  $('ferr').classList.toggle('warn', !!msg && !invalid);
   $('url').setAttribute('aria-invalid', msg && invalid ? 'true' : 'false');
 }
-
 function unreachable() {
-  return FILE
-    ? 'There is no API behind a page opened as a file. Open the dashboard from the running service.'
-    : 'Could not reach the API at /graphql. Check that the service is running, then try again.';
+  return FILE ? 'No API behind a page opened as a file.' : "Can't reach the API at /graphql. Is the service running?";
 }
 
-function showLink(link, stats) {
-  current = link;
-  lastGood = stats;
-  render();
-  if (timer) clearInterval(timer);
-  timer = setInterval(refresh, POLL_MS);
+function follow(link, stats) {
+  S.link = link; S.gone = null; S.stats = stats; S.seen = stats ? keys(stats.recentClicks) : null;
+  S.arrived = new Set(); S.landed = new Set(); S.stale = false;
+  if (stats) S.goodAt = new Date();
+  renderAll();
+  clearInterval(S.timer);
+  S.timer = setInterval(refresh, POLL_MS);
   refresh();
 }
 
 async function refresh() {
-  if (!current || inflight || document.hidden) return;
-  inflight = true;
+  if (!S.link || S.inflight || document.hidden) return;
+  S.inflight = true;
   try {
-    const d = await gql('query($c:String!){ link(code:$c){ ' + STATS_FIELDS + ' } }', { c: current.code });
-    if (!d.link) { notFound(current.code); return; }
-    lastGood = d.link;
-    render();
-    setStatus('Updated ' + clock(new Date()) + ' · every ' + POLL_MS / 1000 + ' s', false);
+    const d = await gql('query($c:String!){ link(code:$c){ ' + STATS_FIELDS + ' } }', { c: S.link.code });
+    if (!d.link) { gone(S.link.code); return; }
+    const prev = S.stats;
+    S.arrived = new Set(S.seen ? d.link.recentClicks.filter(c => !S.seen.has(c.at)).map(c => c.at) : []);
+    S.arrived.forEach(k => S.landed.add(k));
+    S.seen = keys(d.link.recentClicks);
+    S.stats = d.link; S.goodAt = new Date();
+    if (S.stale) announce('Live again.');
+    S.stale = false; S.down = false;
+    formError('', false);
+    renderAll(prev);
+    S.arrived = new Set();
   } catch (err) {
-    /* A failed poll is expected during the chaos experiments: keep the last good render
-       on screen and say so, rather than blanking the page. */
-    const why = err instanceof NetworkError ? 'API unreachable' : err.message;
-    setStatus('Refresh failed at ' + clock(new Date()) + ' (' + why + '). Showing the last data that loaded; retrying every ' + POLL_MS / 1000 + ' s.', true);
+    /* Failed polls are expected during the chaos experiments: keep the last good data on screen. */
+    if (!S.stale) announce('Refresh failed. Showing the last data that loaded.');
+    S.stale = true; S.down = err instanceof NetworkError;
+    renderAll();
   } finally {
-    inflight = false;
+    S.inflight = false;
   }
 }
 
-function setStatus(text, warn) {
-  const s = $('status');
-  s.textContent = text;
-  s.classList.toggle('warn', warn);
+function retry() {
+  if (S.link) refresh();
+  else if (location.hash.length > 1) start();
+  else $('f').requestSubmit();
 }
 
-function notFound(code) {
-  if (timer) clearInterval(timer);
-  current = null;
-  setStatus('', false);
-  $('out').innerHTML = `<div class="empty error"><h3>No link has the code ${esc(code)}</h3>
-    <p>Check the code in the address, or shorten a new URL above.</p></div>`;
-}
-
-function renderEmpty() {
-  $('out').innerHTML = `<div class="empty"><h3>No link yet</h3>
-    <p>Shorten a URL above and its clicks show up here. To come back to a link later, put its
-    code after a <code>#</code> in this page's address.</p></div>`;
-}
-
-function render() {
-  const s = lastGood || { totalClicks: 0, clicksByDay: [], recentClicks: [] };
-  const days = lastSevenDays(s.clicksByDay || []);
-  const max = Math.max(1, ...days.map(d => d.count));
-  days.forEach(d => { d.h = d.count ? Math.max(4, Math.round(d.count / max * 88)) : 0; });
-  const clicks = s.recentClicks || [];
-  const loading = !lastGood;
-  $('out').innerHTML = `
-    <div class="panel">
-      <div class="linkhead">
-        <div>
-          <span class="label">Short link</span>
-          <a class="short mono" href="${esc(current.shortUrl)}" target="_blank" rel="noopener">${esc(current.shortUrl)}</a>
-          ${current.longUrl ? `<p class="dest">goes to ${esc(current.longUrl)}</p>` : ''}
-        </div>
-        <div class="actions">
-          <a href="${esc(current.shortUrl)}" target="_blank" rel="noopener">Open short link</a>
-          <button class="textbtn" type="button" id="copy">Copy</button>
-        </div>
-      </div>
-
-      <div class="stats">
-        <div>
-          <span class="label">Total clicks</span>
-          <span class="big num">${loading ? '…' : s.totalClicks}</span>
-        </div>
-        <figure class="chart">
-          <figcaption>Clicks per day, last ${DAYS} days (UTC)</figcaption>
-          <div class="cols" role="list">${days.some(d => d.count) ? '' : `<p class="chart-empty">${loading ? 'Loading…' : 'No clicks in the last ' + DAYS + ' days'}</p>`}${days.map((d, i) => `
-            <div class="col" role="listitem" tabindex="0" aria-label="${d.long}: ${plural(d.count, 'click')}">
-              <span class="tip num" aria-hidden="true">${d.long}: ${d.count}</span>
-              ${d.count && (d.count === max || i === DAYS - 1) ? `<span class="direct num" aria-hidden="true" style="bottom:calc(${d.h}% + 4px)">${d.count}</span>` : ''}
-              <div class="bar${d.count ? '' : ' zero'}" style="height:${d.h}%"></div>
-            </div>`).join('')}
-          </div>
-          <div class="days" aria-hidden="true">${days.map(d => `<span>${d.short}</span>`).join('')}</div>
-        </figure>
-      </div>
-
-      <div class="recent">
-        <h3>Recent clicks</h3>
-        ${clicks.length ? `<div class="tablewrap"><table>
-          <thead><tr><th scope="col">When</th><th scope="col">Device</th><th scope="col">Country</th><th scope="col">Referrer</th></tr></thead>
-          <tbody>${clicks.map(c => `<tr>
-            <td class="num" title="${esc(c.at)}">${esc(when(c.at))}</td>
-            <td>${esc(c.uaClass || '')}${c.uaClass ? '' : '<span class="muted">unknown</span>'}</td>
-            <td>${c.country ? esc(c.country) : '<span class="muted">not sent</span>'}</td>
-            <td class="ref">${c.referrer ? esc(c.referrer) : '<span class="muted">none</span>'}</td></tr>`).join('')}
-          </tbody></table></div>`
-        : `<div class="empty"><p>${loading ? 'Loading clicks…' : `No clicks yet. <a href="${esc(current.shortUrl)}" target="_blank" rel="noopener">Open the short link</a> in another tab; the visit shows here within a few seconds, because clicks are written after the redirect, not during it.`}</p></div>`}
-      </div>
-    </div>`;
-  $('copy').addEventListener('click', copyLink);
+function gone(code) {
+  clearInterval(S.timer);
+  S.link = null; S.stats = null; S.gone = code; S.stale = false; S.down = false;
+  renderAll();
 }
 
 async function copyLink(e) {
-  const btn = e.currentTarget;
-  try {
-    await navigator.clipboard.writeText(current.shortUrl);
-    btn.textContent = 'Copied';
-  } catch (err) {
-    btn.textContent = 'Copy failed: select the link';
-  }
-  setTimeout(() => { if (btn.isConnected) btn.textContent = 'Copy'; }, 2000);
+  const btn = e.currentTarget, label = btn.querySelector('span');
+  try { await navigator.clipboard.writeText(S.link.shortUrl); label.textContent = 'Copied'; }
+  catch (err) { label.textContent = 'Select it to copy'; }
+  setTimeout(() => { if (btn.isConnected) label.textContent = 'Copy'; }, 2000);
 }
 
-function lastSevenDays(rows) {
+/* ---------- derived ---------- */
+
+// One source for "clicks in the last 30 minutes": the trace header and the total's delta both read it.
+function windowClicks(now) {
+  if (!S.stats) return { list: [], n: 0, capped: false };
+  const list = S.stats.recentClicks.map(c => ({ c, t: Date.parse(c.at) })).filter(p => !isNaN(p.t) && now - p.t <= WINDOW_MS);
+  const capped = S.stats.recentClicks.length >= RECENT_LIMIT && list.length === S.stats.recentClicks.length;
+  return { list, n: list.length, capped };
+}
+function windowPhrase(w) {
+  return '<span class="fig">' + (w.capped ? RECENT_LIMIT + '+' : w.n ? '+' + w.n : '0') + '</span> in the last 30 min';
+}
+function downLine() {
+  return `Can't reach /graphql. Last good ${S.goodAt ? '<span class="fig">' + clock(S.goodAt) + '</span>' : 'never'}.<button class="textbtn" type="button" data-retry>Retry</button>`;
+}
+// The new link is waiting for its first click: Open is now the next thing to press.
+function awaitingClick() { return !!(S.link && !S.down && (!S.stats || !S.stats.totalClicks)); }
+
+/* ---------- render ---------- */
+
+function renderAll(prev) {
+  renderState(); renderShort(); renderTotal(prev); renderPulse(true); renderFeed(); renderDays();
+}
+
+function renderState() {
+  const st = $('state');
+  let s = 'idle', t = '';
+  if (FILE) { s = 'file'; t = 'No API'; }
+  else if (S.link && S.stale) { s = 'stale'; t = 'Stale, last good <span class="fig">' + clock(S.goodAt) + '</span>'; }
+  else if (S.down) { s = 'stale'; t = 'API unreachable'; }
+  else if (S.link && S.goodAt) { s = 'live'; t = 'Live <span class="fig">' + clock(S.goodAt) + '</span>'; }
+  st.dataset.s = s;
+  $('stamp').innerHTML = t;
+  st.title = s === 'live' ? 'Polling every ' + POLL_MS / 1000 + ' s' : s === 'stale' ? 'Retrying every ' + POLL_MS / 1000 + ' s' : '';
+  $('a1').classList.toggle('on', !!S.link);
+  $('a2').classList.toggle('on', !!S.link);
+  $('a2').classList.toggle('hot', !!(S.stats && S.stats.totalClicks));
+  $('go').className = 'btn ' + (awaitingClick() ? 'secondary' : 'primary');
+}
+
+const ICON_OPEN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
+const ICON_COPY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>';
+
+function renderShort() {
+  const el = $('short');
+  if (S.link) {
+    const u = S.link.shortUrl, cut = u.lastIndexOf('/') + 1;
+    const open = awaitingClick() ? 'primary' : 'secondary';
+    const had = document.activeElement && el.contains(document.activeElement) ? document.activeElement.dataset.k : null;
+    el.innerHTML = `<span class="label">Short link</span>
+      <a class="code" href="${esc(u)}" target="_blank" rel="noopener" aria-label="${esc(u)}" data-k="code">
+        <span class="host">${esc(u.slice(0, cut).replace(/^https?:\/\//, ''))}</span><b>${esc(u.slice(cut))}</b></a>
+      <div class="acts">
+        <a class="btn ${open}" href="${esc(u)}" target="_blank" rel="noopener" data-k="open">${ICON_OPEN}Open</a>
+        <button class="btn secondary" type="button" id="copy" data-k="copy">${ICON_COPY}<span>Copy</span></button>
+      </div>
+      ${S.link.longUrl ? `<p class="dest" title="${esc(S.link.longUrl)}">to ${esc(S.link.longUrl)}</p>` : ''}`;
+    $('copy').addEventListener('click', copyLink);
+    if (had) { const f = el.querySelector(`[data-k="${had}"]`); if (f) f.focus(); }
+  } else if (S.gone) {
+    el.innerHTML = `<span class="label">Short link</span>
+      <div class="code gone"><span class="host">/r/</span><b>${esc(S.gone)}</b></div>
+      <p class="gonemsg">No link has this code.</p>`;
+  } else {
+    el.innerHTML = `<span class="label">Short link</span>
+      <div class="code"><span class="host">/r/</span><span class="slots" aria-hidden="true">${'<span></span>'.repeat(7)}</span><span class="sr">Not shortened yet</span></div>`;
+  }
+}
+
+function renderTotal(prev) {
+  const el = $('total'), s = S.stats;
+  if (!S.link || !s) {
+    el.innerHTML = `<span class="label">Clicks</span><div class="kpi"><span class="dash"><span aria-hidden="true">&ndash;</span><span class="sr">none</span></span></div>`;
+    return;
+  }
+  const last = s.recentClicks && s.recentClicks[0];
+  const bumped = prev && s.totalClicks > prev.totalClicks;
+  el.innerHTML = `<span class="label">Clicks, all time</span>
+    <div class="kpi"><span class="big${bumped ? ' bump' : ''}">${s.totalClicks.toLocaleString()}</span><span class="delta">${windowPhrase(windowClicks(Date.now()))}</span></div>
+    <p class="sub">${last ? 'Last at <span class="fig">' + clock(new Date(last.at)) + '</span>' : 'None yet'}</p>`;
+}
+
+function renderPulse(full) {
+  const el = $('trace');
+  const linked0 = !!(S.link && S.stats);
+  el.className = 'trace' + (S.down ? ' down' : S.stale ? ' stale' : linked0 ? '' : ' idle');
+  const narrow = innerWidth <= 640, half = narrow ? 3 : 9;
+  const W = Math.max(200, el.clientWidth), H = (el.clientHeight || 160) - (S.down && narrow ? 30 : 0);
+  const padR = 14, plotW = W - padR, top = 22, axis = 22;
+  const y0 = Math.round(top + (H - top - axis) * 0.64), now = Date.now();
+  const x = t => plotW - (now - t) / WINDOW_MS * plotW;
+  const live = !FILE && !S.down;
+  const linked = !!(S.link && S.stats);
+  let svg = '';
+
+  // Clock-time ticks every 5 minutes (10 on a phone); none within 80px of "now".
+  const step = (W < 500 ? 10 : 5) * 60000;
+  for (let t = Math.ceil((now - WINDOW_MS) / step) * step; t < now; t += step) {
+    const tx = x(t);
+    if (tx < 30 || plotW - tx < 80) continue;
+    svg += `<line class="tick" x1="${tx}" x2="${tx}" y1="${top}" y2="${H - axis}"/><text x="${tx}" y="${H - 4}" text-anchor="middle">${hm(new Date(t))}</text>`;
+  }
+  svg += `<text x="${plotW}" y="${H - 4}" text-anchor="end" style="font-family:var(--sans)">now</text>`;
+  svg += `<path class="base${live || S.down ? '' : ' off'}" d="M0 ${y0}H${plotW}"/>`;
+
+  // Clicks closer than one spike's width merge into one taller spike.
+  const w = windowClicks(now);
+  const groups = [];
+  for (const p of w.list.slice().reverse()) {
+    const px = Math.min(plotW - half, x(p.t)), g = groups[groups.length - 1];
+    if (g && px - g.x < half * 2) { g.items.push(p); g.x = px; } else groups.push({ x: px, items: [p] });
+  }
+  const peak = y0 - top - 6, dn = Math.round((H - top - axis) * 0.2);
+  for (const g of groups) {
+    const n = g.items.length, h = Math.min(peak, Math.round(peak * (0.62 + 0.19 * (n - 1))));
+    const isNew = full && g.items.some(p => S.arrived.has(p.c.at));
+    const first = g.items[0], lastP = g.items[n - 1];
+    const title = n === 1
+      ? `${clock(new Date(first.t))}, ${first.c.uaClass || 'unknown'}${first.c.country ? ', ' + first.c.country : ''}`
+      : `${n} clicks, ${clock(new Date(first.t))} to ${clock(new Date(lastP.t))}`;
+    const a = half, b = half * 0.45;
+    svg += `<path class="spike${isNew ? ' new' : ''}" data-at="${esc(g.items.map(p => p.c.at).join(' '))}" pathLength="1" d="M${g.x - a} ${y0}L${g.x - b} ${y0 + 6}L${g.x} ${y0 - h}L${g.x + b} ${y0 + dn}L${g.x + a} ${y0}"><title>${esc(title)}</title></path>`;
+    g.h = h;
+  }
+  if (groups.length) {
+    // The newest click names its time in a reserved row above the plot, tied to its spike by a 1px leader.
+    const g = groups[groups.length - 1], newest = w.list[0];
+    const anchorEnd = g.x > 90;
+    svg += `<line class="leader" x1="${g.x}" x2="${g.x}" y1="${top - 4}" y2="${y0 - g.h - 3}"/>`;
+    svg += `<text class="latest${full && S.arrived.has(newest.c.at) ? ' new' : ''}" x="${anchorEnd ? g.x - 5 : g.x + 5}" y="${top - 8}" text-anchor="${anchorEnd ? 'end' : 'start'}">${esc(clock(new Date(newest.t)))}</text>`;
+  }
+  if (live || S.down) {
+    svg += `<circle class="dot" cx="${plotW}" cy="${y0}" r="4"/>`;
+    if (linked && live && !S.stale) svg += `<circle class="ring" cx="${plotW}" cy="${y0}" r="4"/>`;
+  }
+
+  el.innerHTML = (S.down ? `<p class="tmsg">${downLine()}</p>` : '')
+    + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${linked ? plural(w.n, 'click') + ' in the last 30 minutes' : 'No clicks to trace yet'}">${svg}</svg>`;
+  $('pulse-meta').innerHTML = !linked ? 'Last 30 min'
+    : w.capped ? `Latest <span class="fig">${RECENT_LIMIT}</span> clicks, last 30 min`
+    : `<span class="fig">${w.n}</span> click${w.n === 1 ? '' : 's'} in the last 30 min`;
+}
+
+function renderDays() {
+  const el = $('days');
+  const s = S.stats;
+  const days = lastDays(s ? s.clicksByDay || [] : []);
+  const max = Math.max(...days.map(d => d.count));
+  if (s) console.assert(days.reduce((a, d) => a + d.count, 0) <= s.totalClicks, 'last 7 days exceed the all-time total');
+  // Nothing to scale (no link, unreachable, or no clicks this week): the zero line and the days, no invented axis.
+  const flat = !max;
+  el.classList.toggle('flat', flat);
+  const W = Math.max(240, el.clientWidth), H = Math.max(flat ? 56 : 200, el.clientHeight);
+  const left = flat ? 0 : 28, bottom = 22, plotH = H - bottom - 14;
+  const colW = (W - left) / DAYS, barW = Math.min(36, colW * 0.6);
+  let svg = '';
+  if (flat) {
+    svg += `<line class="axis${s ? '' : ' off'}" x1="0" x2="${W}" y1="${H - bottom - 6}" y2="${H - bottom - 6}"/>`;
+  } else {
+    const stepV = niceStep(max), topV = Math.ceil(max / stepV) * stepV;
+    const y = v => 14 + plotH - v / topV * plotH;
+    for (let v = 0; v <= topV; v += stepV) {
+      svg += `<line class="${v ? 'grid' : 'axis'}" x1="${left}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="0" y="${y(v) + 4}">${v}</text>`;
+    }
+    days.forEach((d, i) => {
+      if (!d.count) return;
+      const cx = left + colW * i + colW / 2, today = i === DAYS - 1;
+      svg += `<rect class="${today ? 'today' : ''}" x="${cx - barW / 2}" y="${y(d.count)}" width="${barW}" height="${y(0) - y(d.count)}"><title>${d.long}: ${plural(d.count, 'click')}</title></rect>`;
+      if (d.count === max || today) svg += `<text class="v" x="${cx}" y="${y(d.count) - 6}" text-anchor="middle">${d.count}</text>`;
+    });
+  }
+  days.forEach((d, i) => {
+    svg += `<text class="day" x="${left + colW * i + colW / 2}" y="${H - 4}" text-anchor="middle">${i === DAYS - 1 ? 'Today' : d.short}</text>`;
+  });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Clicks per day: ${s ? days.map(d => d.long + ' ' + d.count).join(', ') : 'nothing loaded'}">${svg}</svg>`;
+}
+
+function renderFeed() {
+  const el = $('feed');
+  if (!S.stats) {
+    el.innerHTML = S.down ? `<div class="empty"><p class="fmsg">${downLine()}</p></div>`
+      : `<p class="empty">${S.link ? 'Loading clicks' : S.gone ? 'Nothing to show for an unknown code.' : 'Each click shows here, newest first.'}</p>`;
+    return;
+  }
+  const clicks = S.stats.recentClicks || [];
+  const msg = S.down ? `<p class="fmsg">${downLine()}</p>` : '';
+  if (!clicks.length) { el.innerHTML = msg + `<p class="empty">No clicks yet.</p>`; return; }
+  const rows = clicks.slice(0, FEED_ROWS);
+  el.innerHTML = msg + `<table><thead><tr><th scope="col">When</th><th scope="col">Device</th><th scope="col">Country</th><th scope="col">Referrer</th></tr></thead><tbody>${
+    rows.map(c => `<tr data-at="${esc(c.at)}" class="${S.landed.has(c.at) ? 'landed' : ''}${S.arrived.has(c.at) ? ' arrive' : ''}">
+        <td title="${esc(c.at)}"><span class="mk" aria-hidden="true"></span><span class="fig">${esc(when(c.at))}</span>${c.referrer ? `<span class="ref2">${esc(c.referrer.replace(/^https?:\/\//, ''))}</span>` : ''}</td>
+        <td>${c.uaClass && c.uaClass !== 'unknown' ? esc(c.uaClass) : '<span class="none">unknown</span>'}</td>
+        <td>${c.country ? esc(c.country) : dash('not sent')}</td>
+        <td title="${esc(c.referrer || '')}">${c.referrer ? esc(c.referrer.replace(/^https?:\/\//, '')) : dash('none')}</td></tr>`).join('')
+  }</tbody></table>${clicks.length > FEED_ROWS ? `<p class="more"><span class="fig">${FEED_ROWS}</span> of the latest <span class="fig">${clicks.length}</span></p>` : ''}`;
+}
+
+// Hovering a feed row thickens the spike that holds its click.
+function spikeFor(tr) {
+  if (!tr || !tr.dataset.at) return null;
+  return [...$('trace').querySelectorAll('.spike')].find(p => p.dataset.at.split(' ').includes(tr.dataset.at)) || null;
+}
+$('feed').addEventListener('mouseover', e => { const p = spikeFor(e.target.closest('tr')); if (p) p.classList.add('hl'); });
+$('feed').addEventListener('mouseout', e => { const p = spikeFor(e.target.closest('tr')); if (p) p.classList.remove('hl'); });
+document.addEventListener('click', e => { if (e.target.closest('[data-retry]')) retry(); });
+
+/* ---------- helpers ---------- */
+
+function dash(sr) { return `<span class="none" aria-hidden="true">&ndash;</span><span class="sr">${sr}</span>`; }
+function keys(list) { return new Set((list || []).map(c => c.at)); }
+function niceStep(max) {
+  const raw = Math.max(1, max) / 4, p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const m = raw / p;
+  return Math.max(1, (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p);
+}
+function lastDays(rows) {
   const byDay = new Map(rows.map(r => [r.day, r.count]));
   const out = [], now = new Date();
   for (let i = DAYS - 1; i >= 0; i--) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
-    const key = d.toISOString().slice(0, 10);
     out.push({
-      count: byDay.get(key) || 0,
+      count: byDay.get(d.toISOString().slice(0, 10)) || 0,
       short: d.toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' }),
       long: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
     });
   }
   return out;
 }
-
 function when(iso) {
   const t = new Date(iso);
   if (isNaN(t)) return iso;
-  const sameDay = t.toDateString() === new Date().toDateString();
-  return sameDay ? clock(t) : t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + clock(t);
+  return t.toDateString() === new Date().toDateString() ? clock(t)
+    : t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + hm(t);
 }
 function clock(t) { return t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+function hm(t) { return t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
 function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+function announce(t) { $('announce').textContent = t; }
 function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g,
-    c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
 async function start() {
   if (FILE) $('offline').hidden = false;
   const code = decodeURIComponent(location.hash.slice(1));
-  if (!code) { renderEmpty(); return; }
+  renderAll();
+  if (!code || FILE) return;
   try {
     const d = await gql('query($c:String!){ link(code:$c){ ' + LINK_FIELDS + ' ' + STATS_FIELDS + ' } }', { c: code });
-    if (!d.link) { notFound(code); return; }
-    showLink(d.link, d.link);
+    S.down = false;
+    if (!d.link) { gone(code); return; }
+    formError('', false);
+    follow(d.link, d.link);
   } catch (err) {
-    renderEmpty();
-    setFormError(err instanceof NetworkError ? unreachable() : 'Could not load ' + code + ': ' + err.message, false);
+    S.down = err instanceof NetworkError;
+    if (!S.down) formError('Could not load ' + code + ': ' + err.message, false);
+    renderAll();
   }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { renderPulse(false); renderDays(); }, 120); });
 start();
 </script>
 </body>
