@@ -1602,9 +1602,17 @@ throttled 6.6 writes/s. Both alerts fired 30 s after the first drop, and users s
 of it: 7,202 requests, 0 failed, redirect p99 7 ms against 5 ms clean. CloudWatch's own
 view (`docs/evidence/burst/chaos-1/cloudwatch-throttling.png`) shows consumed WCU at
 40/s while the credit lasts, then clamped to exactly the provisioned 20 as throttle
-events rise. One thing the data model did not predict: CloudWatch attributes almost all
-the throttled writes to PutItem (the per-click event records, 1,304/min at peak), not to
-UpdateItem on the hot aggregate (14/min).
+events rise. CloudWatch attributes almost all the throttled writes to PutItem (1,304/min
+at peak) against UpdateItem (14/min). That is the order of the writes, not a property of
+the keys: `RecordClick` writes the click record with PutItem, returns if it fails, and only
+then increments the sharded aggregate with UpdateItem. When the table is out of capacity
+the PutItem absorbs the throttle and the aggregate is never attempted. (An earlier version
+of this paragraph read the ratio as evidence about hot keys. It is not.) The 14/min is
+the real finding: those are clicks whose record was written and whose aggregate
+increment was then throttled. The two writes are not atomic, so under throttling
+`totalClicks` can undercount the click feed. A transaction would close the gap at twice
+the write cost; for analytics that are already allowed to drop under throttling, the gap
+is acceptable, but it should be a stated property rather than a discovered one.
 
 **Chaos 3 and 5 failed, and both failures are findings.**
 - *5, drain:* the evicted replica's replacement never scheduled. The other three nodes

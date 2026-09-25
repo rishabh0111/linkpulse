@@ -35,8 +35,10 @@ with the reason, rather than rerun until it passed.
   after each run is the exporter repeating its last datapoint for up to its 300 s
   look-back.
 - CloudWatch's `ThrottledRequests` by operation: PutItem 1,304/min against UpdateItem
-  14/min at peak. Almost all throttled writes were the per-click event records, not the
-  hot aggregate counter that `docs/data-model.md` worries about.
+  14/min at peak. That ratio is the order of the writes: a click is a PutItem of its
+  record, then, only if that succeeded, an UpdateItem on the sharded aggregate. The 14
+  are clicks whose record was written and whose aggregate increment was throttled. The
+  writes are not atomic, so under throttling the aggregate can undercount the feed.
 
 The first run of this experiment (not kept) failed one check: its load ran 12 minutes
 instead of the task's 6, so it was still running when `during` waited for drops to

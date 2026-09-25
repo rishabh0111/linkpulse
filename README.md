@@ -6,7 +6,8 @@ The product is small on purpose; the work is the DynamoDB data model designed ar
 own failure mode, Terraform that applies against a mock in CI and a real account on
 demand, a three-node Kubernetes cluster deployed by GitOps with TLS from its own CA, a
 monitoring stack whose alerts were proven by inducing the failures they describe, and
-five chaos experiments that leave timelines and rendered panels behind.
+five chaos experiments that leave timelines and rendered panels behind. Then the same
+system ran for twelve hours on EKS against real DynamoDB, for $3.32.
 
 Start with [docs/case-study.md](docs/case-study.md) for the story and the findings, or
 [docs/architecture.md](docs/architecture.md) for the diagram.
@@ -69,34 +70,55 @@ mise tasks                    # everything else, with descriptions
 | `scripts/` | smoke, observability and TLS checks; backup/restore; cost report; metered-resource audit; `chaos/` |
 | `load-testing/k6/` | the baseline and the hot-link load |
 | `docs/evidence/` | every chaos run's timeline and rendered panels; the k6 export |
+| `docs/evidence/burst/` | the EKS run: every experiment, the failed ones included, and the bill |
 | `docs/runbook.md` | what to do when each alert fires, with what the experiment measured |
-| `docs/burst-runbook.md` | the 72-hour AWS window, written before it opens |
+| `docs/burst-runbook.md` | the AWS window, planned before it opened, amended with what it taught |
 | `docs/postmortem.md` | the incident the project had with its own alert rules |
 | `tracker.md` | every decision with its reasoning, every bug, every verification — the primary record |
 | `mise.toml` / `Makefile` | the tasks; every one a single tool invocation in a container |
 
 ## Status, honestly
 
-Everything above is verified on one machine (Windows 11, Docker Desktop), through the
-exact commands in `mise.toml` — but not yet through `mise run` itself on a second
-machine, and **nothing has touched a real AWS account**: the `aws` and `aws-burst`
-environments, the load-balancer controller, the cost report and the teardown are
-validated and unexecuted. CI runs on every push and has passed end to end: all eight jobs,
-including a 53-minute job that builds a three-node cluster on the runner and runs the load
-baseline, four of the five chaos experiments (2 needs Gitea and ArgoCD) and a
-destroy-and-restore backup. Getting there took seven runs and found five defects, two of
-them in the experiments themselves; `tracker.md` has each one.
-`tracker.md` § Known loose ends is the complete, current list; the README will not claim
-more than it does.
+**Two machines.** Windows 11 with Docker Desktop, where it was built, and Fedora 44 with
+Docker Engine and SELinux enforcing, where `mise run dev` ran from a fresh clone. The
+second host found two defects the first could not (SELinux labels, a directory a fresh
+clone lacked), and its first `clean && gitops` from an empty cluster found three more in
+the GitOps path. `mise` on Windows is still verified only through the commands it runs,
+not through `mise run` under `cmd`.
+
+**CI** runs on every push: eight jobs, including a 55-minute one that builds a
+three-node cluster on the runner and runs the load baseline, four of the five chaos
+experiments and a destroy-and-restore backup. A green build pins its image digest into
+the EKS overlay with a bot commit.
+
+**Real AWS**, on 2026-09-24: twelve hours of EKS 1.34 (4 × t3.small, ap-south-1)
+against the real table, torn down the same evening and confirmed at $0.00 the next day.
+It cost **$3.32** of a $25 ceiling. The app, the observability suite (29/29), the k6
+baseline and chaos 1 all passed there, with real DynamoDB throttling and nothing
+injected. Chaos 3 and 5 failed on EKS, and both failures are findings. Chaos 2 and 4 were
+not run there, by decision. Getting it working turned up thirteen defects that no local
+run or CI could have shown. [`docs/evidence/burst/`](docs/evidence/burst/README.md) has
+every run.
+
+`tracker.md` § Known loose ends is the complete, current list of what is still open; the
+README will not claim more than it does.
 
 ## Findings worth reading about
 
 Building this found: an "always-free" table that would have billed $3 a month (index
 capacity counts); two alert rules that were syntactically fine, evaluating "healthy", and
 incapable of ever firing; a LocalStack that never enforces the capacity the throttle
-experiment needed; an IRSA trust policy naming a service account that did not exist; and
-a monitoring stack that a routine `kubectl drain` takes down with the workload. Each is
-in the case study, with how it was found and what changed.
+experiment needed; an IRSA trust policy naming a service account that did not exist; a
+monitoring stack that a routine `kubectl drain` takes down with the workload; and
+ArgoCD sync waves that ordered nothing, which only building from an empty cluster
+showed.
+
+Running it on AWS found more: EKS capacity is counted in pod slots, not CPU (11 pods on a
+t3.small, so two nodes could not hold the project); a drain that strands a replica
+because the only free slots are on the node being drained; an IAM revocation that
+reached one pod and not the other, then took four minutes to undo; and a claim that "the
+same manifests deploy to EKS unchanged" that was not true until five manifest fixes made
+it so. Each is in the case study, with how it was found and what changed.
 
 ## Third-party
 
