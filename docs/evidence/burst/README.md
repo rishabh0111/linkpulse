@@ -15,7 +15,8 @@ with the reason, rather than rerun until it passed.
 | Chaos 1, throttling | PASS (second run) | `chaos-1/` |
 | Chaos 5, node loss | FAIL in the drain half, by design of the capacity, not the app | `chaos-5/run.json`, `chaos-5/run.log` |
 | Chaos 3, datastore unreachable | FAIL: IAM propagation is not simultaneous | `chaos-3/run.json`, `chaos-3/run.log` |
-| Chaos 2, 4 | not run on EKS | see below |
+| Chaos 2, 4 | not run on EKS, by decision | see below |
+| Cost | $3.32 for the whole burst | `cost-report-final.md` |
 
 ## Chaos 1: real throttling, nothing injected
 
@@ -79,12 +80,17 @@ reached one pod's session and not the other's within two minutes, then took four
 minutes to undo. The application's readiness cache is 2 s and played no part. For a
 runbook: after reverting a bad IAM change, expect minutes more of AccessDenied.
 
-## Not run on EKS
+## Not run on EKS, by decision
 
+- Chaos 4 (memory exhaustion) needs `POST /debug/leak`, an endpoint that lets any caller
+  make the process exhaust its memory. Only the local overlay enables it, by design: a
+  deployment facing the internet should not have it, and running the experiment on EKS
+  would have meant shipping exactly that.
 - Chaos 2 (bad deploy and rollback) drives the local Gitea remote. On EKS ArgoCD syncs
-  from GitHub, and adapting it means pushing a deliberately broken image and a bad
-  commit to the public `main`.
-- Chaos 4 (memory exhaustion) needs `POST /debug/leak`, which only the local overlay
-  enables, deliberately.
+  from GitHub, so it would have meant pushing a deliberately broken image to the public
+  registry and a bad commit to the public `main`, to prove what the local run already
+  proves. What that leaves unexercised is narrow: ArgoCD's sync from GitHub ran on EKS
+  all day (every fix in this burst reached the cluster that way); only the
+  broken-deploy-then-revert sequence did not.
 
 Both are covered by the local evidence under `docs/evidence/chaos-2` and `chaos-4`.

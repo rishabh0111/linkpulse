@@ -1633,9 +1633,20 @@ The laptop slept during the destroy, so `DeleteCluster` went out 2 h 48 m after
 `DeleteNodegroup` and the control plane billed for that time too, about $0.28. The
 runbook now says to keep the machine awake.
 
-**Cost:** Cost Explorer showed $0.27 on the night, only the first hours because of its
-lag. The estimate for the whole burst is $3–4 of credit against the $25 ceiling. Confirm
-it from the next day's `mise run cost-report`, and fill in the exact figure here.
+**Cost: $3.32**, all on 2026-09-24, and $0.00 the next day
+(`docs/evidence/burst/cost-report-final.md`). Credits went from $200.00 to $196.67, which
+agrees to the cent. EKS $1.47 (control plane, about 14.9 h, including the sleep overrun),
+EC2 compute $0.99, VPC $0.34 (the nodes' public IPv4), ELB $0.29, EC2-Other $0.12 (EBS),
+CloudWatch $0.09 (the exporter's GetMetricData), Cost Explorer $0.02. Under the plan's
+$10.74 estimate because the window was 12 hours, not 72. On the night Cost Explorer showed
+$0.27; it caught up the next afternoon.
+
+$1.85 of the $3.32 is "(untagged)" in the by-environment view. Only the EKS control plane
+carried the `Environment` tag. The node group's instances, their volumes and addresses,
+and the controller-made ALB do not inherit the provider's `default_tags`, so a by-tag
+report cannot see them. The EKS node group needs a launch template with tag
+specifications, and the Ingress an `alb.ingress.kubernetes.io/tags` annotation. Neither
+was needed to read this bill, which had only one environment in it.
 
 ### Found only on real AWS
 
