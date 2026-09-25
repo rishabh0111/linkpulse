@@ -1662,8 +1662,8 @@ On 2026-09-25 the narrative moved out of the repository, to match the other proj
 README is technical only (run, try, API, a claims-to-evidence table, configuration), and
 the story, including everything `docs/case-study.md` held, is a blog post drafted in the
 `limbo` repo for 2026-10-23, `breaking-a-url-shortener-on-purpose`. `docs/case-study.md`
-is deleted. The README's link row gets the write-up link on the day the post ships, not
-before, so it never points at a 404.
+is deleted. The README links the write-up already, like `nostro-ledger`'s, so the link
+404s until the post ships.
 
 ### Found only on real AWS
 
