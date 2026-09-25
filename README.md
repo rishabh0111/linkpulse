@@ -1,5 +1,11 @@
 # LinkPulse
 
+A URL shortener with click analytics, kept deliberately small, because the platform around
+it is the point: Terraform for four environments, Kubernetes deployed by ArgoCD, Prometheus,
+Grafana and Loki watching it, and five chaos experiments that induce the failures its alerts
+claim to catch. It runs on k3d with LocalStack locally and in CI, and has run on EKS against
+real DynamoDB.
+
 [![CI](https://github.com/rishabh0111/linkpulse/actions/workflows/ci.yml/badge.svg)](https://github.com/rishabh0111/linkpulse/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![DynamoDB](docs/badges/dynamodb.svg)
@@ -11,18 +17,19 @@
 ![Grafana](https://img.shields.io/badge/Grafana-F46800?style=flat&logo=grafana&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
 
-**[Full write-up](https://rishabh0111.github.io/blogs/production-grade-devops-platform/)** ·
-[Chaos evidence](docs/evidence/) ·
-[The EKS run](docs/evidence/burst/README.md) ·
-[Data model](docs/data-model.md) ·
-[Runbook](docs/runbook.md) ·
-[CI runs](https://github.com/rishabh0111/linkpulse/actions/workflows/ci.yml)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
+  <img alt="LinkPulse architecture. Request path: user, then ingress with TLS, then the Go service, then one DynamoDB table. Inside the cluster, Prometheus scrapes the service and ArgoCD deploys it. Five chaos experiments induce failures and assert their alerts fire. Terraform creates four environments. On every push, CI runs tests, a Trivy gate and an end-to-end run on k3d, pushes the image to ghcr.io and pins it in the aws overlay, which ArgoCD picks up from git." src="docs/architecture-light.svg" width="100%">
+</picture>
 
-A URL shortener with click analytics, and the platform around it. A Go service over a
-single DynamoDB table, deployed to Kubernetes by ArgoCD, with Terraform for four
-environments, a Prometheus and Loki monitoring stack, and five chaos experiments that
-induce the failures its alerts claim to catch. It runs on k3d with LocalStack locally and
-in CI, and has run on EKS against real DynamoDB.
+Where to look first:
+
+- **[The write-up](https://rishabh0111.github.io/blogs/production-grade-devops-platform/)**: why it is built this way, and what running it on AWS found.
+- **[Chaos evidence](docs/evidence/)**: a timeline and Grafana panels for each experiment.
+- **[The EKS run](docs/evidence/burst/README.md)**: the same manifests on EKS and real DynamoDB, every run recorded, failures included.
+- **[Runbook](docs/runbook.md)**: what to do when each alert fires.
+- **[Data model](docs/data-model.md)**: the single-table design the rest serves.
+- **[CI runs](https://github.com/rishabh0111/linkpulse/actions/workflows/ci.yml)**: the whole pipeline, on every push.
 
 ## Running it
 

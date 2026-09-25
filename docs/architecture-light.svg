@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="900" height="520" role="img" aria-labelledby="t d">
+  <title id="t">LinkPulse architecture</title>
+  <desc id="d">A request goes from the user through the ingress with TLS to the Go service and then to one DynamoDB table. Around it: a push runs CI (unit tests, a Trivy gate, an end-to-end run on a k3d cluster), the image goes to ghcr.io, and ArgoCD deploys from git into the cluster. Prometheus, Alertmanager, Grafana and Loki watch the service; five chaos experiments induce failures and assert their alerts fire; Terraform builds four environments.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .zone { fill: #eef1f4; }
+    .box { fill: #ffffff; stroke: #c8d0d8; stroke-width: 1; }
+    .out { fill: #f6f8fa; stroke: #c8d0d8; stroke-width: 1; }
+    .key { fill: #ffffff; stroke: #2f6f4e; stroke-width: 1.5; }
+    text { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .h { font-size: 14.5px; font-weight: 600; }
+    .b { font-size: 13px; fill: #4b545e; }
+    .z { font-size: 12.5px; font-weight: 600; fill: #4b545e; }
+    .l { font-size: 12.5px; fill: #4b545e; }
+    .req { stroke: #2f6f4e; stroke-width: 2; fill: none; }
+    .flow { stroke: #59636e; stroke-width: 1.5; fill: none; }
+    .obs { stroke: #59636e; stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; }
+    .mreq { fill: #2f6f4e; }
+    .mflow { fill: #59636e; }
+  </style>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mreq" d="M0 0L10 5L0 10z"/></marker>
+    <marker id="af" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mflow" d="M0 0L10 5L0 10z"/></marker>
+  </defs>
+
+  <rect class="bg" width="900" height="520"/>
+
+  <!-- The cluster -->
+  <rect class="zone" x="190" y="12" width="520" height="356" rx="10"/>
+  <text class="z" x="206" y="36">Kubernetes: k3d with three nodes locally, EKS on AWS</text>
+
+  <!-- Request path -->
+  <rect class="out" x="20" y="56" width="150" height="94" rx="6"/>
+  <text class="h" x="34" y="80">User</text>
+  <text class="b" x="34" y="100">browser, curl, k6</text>
+
+  <rect class="box" x="210" y="56" width="150" height="94" rx="6"/>
+  <text class="h" x="224" y="80">Ingress, TLS</text>
+  <text class="b" x="224" y="100">Traefik locally,</text>
+  <text class="b" x="224" y="118">ALB on EKS; certs</text>
+  <text class="b" x="224" y="136">from the cluster's CA</text>
+
+  <rect class="key" x="385" y="56" width="305" height="94" rx="6"/>
+  <text class="h" x="399" y="80">Go service</text>
+  <text class="b" x="399" y="100">GraphQL API and the /r/{code} redirect</text>
+  <text class="b" x="399" y="118">2 to 6 pods, scaled by an HPA</text>
+  <text class="b" x="399" y="136">clicks are written off the request path</text>
+
+  <rect class="out" x="730" y="56" width="150" height="94" rx="6"/>
+  <text class="h" x="744" y="80">DynamoDB</text>
+  <text class="b" x="744" y="100">one table, click</text>
+  <text class="b" x="744" y="118">counts sharded</text>
+  <text class="b" x="744" y="136">LocalStack locally</text>
+
+  <path class="req" d="M170 103H206" marker-end="url(#ar)"/>
+  <path class="req" d="M360 103H381" marker-end="url(#ar)"/>
+  <path class="req" d="M690 103H726" marker-end="url(#ar)"/>
+
+  <!-- Inside the cluster, below the request path -->
+  <rect class="box" x="210" y="192" width="260" height="160" rx="6"/>
+  <text class="h" x="224" y="216">Monitoring</text>
+  <text class="b" x="224" y="238">Prometheus: scrapes the pods,</text>
+  <text class="b" x="224" y="256">13 alert rules</text>
+  <text class="b" x="224" y="278">Alertmanager: routes to Discord</text>
+  <text class="b" x="224" y="300">Grafana: 3 dashboards</text>
+  <text class="b" x="224" y="322">Loki: logs, shipped by Alloy</text>
+
+  <path class="obs" d="M430 192V154" marker-end="url(#af)"/>
+  <text class="l" x="438" y="177">scrape</text>
+
+  <rect class="box" x="495" y="222" width="195" height="130" rx="6"/>
+  <text class="h" x="509" y="246">ArgoCD</text>
+  <text class="b" x="509" y="266">app-of-apps, two projects</text>
+  <text class="b" x="509" y="288">deploys the app,</text>
+  <text class="b" x="509" y="306">monitoring, cert-manager</text>
+  <text class="b" x="509" y="324">and Sealed Secrets</text>
+
+  <path class="flow" d="M600 222V154" marker-end="url(#af)"/>
+  <text class="l" x="608" y="196">deploys</text>
+  <path class="flow" d="M495 300H474" marker-end="url(#af)"/>
+
+  <!-- Chaos, left of the cluster -->
+  <rect class="out" x="20" y="192" width="150" height="160" rx="6"/>
+  <text class="h" x="34" y="216">Chaos experiments</text>
+  <text class="b" x="34" y="238">five induced failures:</text>
+  <text class="b" x="34" y="256">throttling, bad deploy,</text>
+  <text class="b" x="34" y="274">datastore loss, OOM,</text>
+  <text class="b" x="34" y="292">node loss</text>
+  <text class="b" x="34" y="314">each asserts that</text>
+  <text class="b" x="34" y="332">its alert fires</text>
+  <path class="flow" d="M170 290H206" marker-end="url(#af)"/>
+
+  <!-- Terraform, right of the cluster -->
+  <rect class="out" x="730" y="192" width="150" height="160" rx="6"/>
+  <text class="h" x="744" y="216">Terraform</text>
+  <text class="b" x="744" y="238">four environments:</text>
+  <text class="b" x="744" y="260">local: LocalStack</text>
+  <text class="b" x="744" y="280">bootstrap: state</text>
+  <text class="b" x="744" y="300">aws: table, IAM, VPC</text>
+  <text class="b" x="744" y="320">aws-burst: EKS</text>
+  <path class="flow" d="M805 192V154" marker-end="url(#af)"/>
+  <text class="l" x="813" y="177">creates</text>
+
+  <!-- Delivery -->
+  <text class="z" x="20" y="394">On every push</text>
+
+  <rect class="out" x="20" y="408" width="150" height="96" rx="6"/>
+  <text class="h" x="34" y="432">git push</text>
+  <text class="b" x="34" y="452">to GitHub, or to</text>
+  <text class="b" x="34" y="470">Gitea locally</text>
+
+  <rect class="out" x="210" y="408" width="350" height="96" rx="6"/>
+  <text class="h" x="224" y="432">CI: GitHub Actions</text>
+  <text class="b" x="224" y="452">unit tests, Terraform and manifest checks, Trivy gate</text>
+  <text class="b" x="224" y="470">on a three-node k3d cluster: smoke, observability,</text>
+  <text class="b" x="224" y="488">k6 baseline, chaos 1, 3, 4, 5, backup restore</text>
+
+  <rect class="out" x="590" y="408" width="290" height="96" rx="6"/>
+  <text class="h" x="604" y="432">Image to ghcr.io, by digest</text>
+  <text class="b" x="604" y="452">a bot commit pins it in the aws overlay;</text>
+  <text class="b" x="604" y="470">ArgoCD picks the change up from git</text>
+
+  <path class="flow" d="M170 456H206" marker-end="url(#af)"/>
+  <path class="flow" d="M560 456H586" marker-end="url(#af)"/>
+  <path class="flow" d="M640 408V356" marker-end="url(#af)"/>
+  <text class="l" x="648" y="388">polls git</text>
+</svg>
