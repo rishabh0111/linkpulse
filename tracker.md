@@ -1453,7 +1453,7 @@ says so in its second paragraph.
 | `docs/architecture.md` | the reviewer | the mermaid diagram; the request path; a layers/owners table; every trade-off another file cites this document for (schema in code and no subscriptions, public-tier nodes, the provider/LocalStack floor, the capacity split, containers-only, CA over mkcert, what is injected); a verified-where table |
 | `docs/burst-runbook.md` | the operator, on the clock | budget and abort conditions decided now; an eleven-item free checklist (every placeholder substitution listed by file); the window hour by hour with the check that gates each step; the teardown order; what the runbook does not yet know |
 | `docs/postmortem.md` | anyone who runs alerts | the two dead rules as a blameless postmortem: timeline, root cause, four contributing factors, action items (all done), and the lesson |
-| `docs/case-study.md` | the portfolio reader | the system, the numbers, the findings in order of what each would have cost, what the constraints bought, what is not done, a reading order |
+| `docs/case-study.md` (since moved to the blog write-up, below) | the portfolio reader | the system, the numbers, the findings in order of what each would have cost, what the constraints bought, what is not done, a reading order |
 | `README.md` | the front page | run it in three commands; what is where; a status paragraph that claims exactly what is verified |
 | `infra/terraform/modules/vpc/README.md` | cited twice by the module | the NAT-vs-public-tier cost table |
 
@@ -1655,6 +1655,15 @@ and the controller-made ALB do not inherit the provider's `default_tags`, so a b
 report cannot see them. The EKS node group needs a launch template with tag
 specifications, and the Ingress an `alb.ingress.kubernetes.io/tags` annotation. Neither
 was needed to read this bill, which had only one environment in it.
+
+### The write-up
+
+On 2026-09-25 the narrative moved out of the repository, to match the other projects: the
+README is technical only (run, try, API, a claims-to-evidence table, configuration), and
+the story, including everything `docs/case-study.md` held, is a blog post drafted in the
+`limbo` repo for 2026-10-23, `breaking-a-url-shortener-on-purpose`. `docs/case-study.md`
+is deleted. The README's link row gets the write-up link on the day the post ships, not
+before, so it never points at a 404.
 
 ### Found only on real AWS
 
