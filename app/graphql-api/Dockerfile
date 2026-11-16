@@ -5,7 +5,7 @@
 # what makes the Trivy HIGH/CRITICAL gate in CI passable rather than aspirational: an
 # image with no OS packages has no OS CVEs.
 
-ARG GO_VERSION=1.27.1
+ARG GO_VERSION=1.27.3
 
 # BUILDPLATFORM pins the builder to the native architecture of the machine doing the
 # build, and Go cross-compiles to TARGETARCH from there. Emulating the target

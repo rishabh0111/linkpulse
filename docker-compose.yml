@@ -234,7 +234,7 @@ services:
       AWS_REGION:
 
   gotools:
-    image: golang:1.27.1
+    image: golang:1.27.3
     profiles: [tools]
     networks: [linkpulse]
     working_dir: /repo/app/graphql-api
