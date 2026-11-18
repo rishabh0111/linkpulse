@@ -25,7 +25,7 @@ resources:
 images:
   - name: ghcr.io/owner/linkpulse
     newName: ghcr.io/rishabh0111/linkpulse
-    digest: sha256:3557944e2fe75e8918a43a61583a19a7c85cad0e733c12f5caf7195dfac69df1
+    digest: sha256:fc9dae2a9b9b2369f7fe842ec0d8223f945f215e563b6802df1615dd1c2435df
 
 configMapGenerator:
   - name: linkpulse-config
