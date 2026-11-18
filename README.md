@@ -103,7 +103,7 @@ malformed code answers `404`.
 | A deploy that never becomes ready never replaces the pods serving traffic, and `git revert` rolls it back | Experiment 2 ([timeline](docs/evidence/chaos-2/timeline.md)), through ArgoCD with nobody touching the cluster |
 | A memory leak is OOM-killed, alerted on, and caught as CrashLoopBackOff while the other replica serves | Experiment 4 ([timeline](docs/evidence/chaos-4/timeline.md)) |
 | A drain respects the disruption budget; a lost node is reported and its pod replaced | Experiment 5 ([timeline](docs/evidence/chaos-5/timeline.md)) |
-| Every alert rule can fire, and fires on the failure it names | The five experiments assert each rule by inducing its condition; rules in [`monitoring/prometheus/rules/`](monitoring/prometheus/rules/) |
+| Ten of the 13 alert rules fire on the failure they name | The five experiments induce each one's condition and assert it firing; `LinkpulseHighErrorRate`, `LinkpulseRedirectLatencyHigh` and `LinkpulseTargetDown` are asserted loaded and evaluating by `scripts/observability-check.py`, not yet fired by an experiment. Rules in [`monitoring/prometheus/rules/`](monitoring/prometheus/rules/) |
 | The monitoring stack is observing: targets up, rules evaluating, logs and dashboards queryable | [`scripts/observability-check.py`](scripts/observability-check.py), 29 assertions |
 | The click aggregate is sharded, and a day's range read covers every shard | [`TestWriteShardingSpreadsAggregateKeys`](app/graphql-api/internal/store/keys_test.go), [`TestStatRangeCoversAllShards`](app/graphql-api/internal/store/keys_test.go) |
 | Dangerous URLs are refused | [`TestShortenRejectsDangerousURLs`](app/graphql-api/internal/gql/schema_test.go) |
